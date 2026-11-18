@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Start / stop the scrolling desktop:  sdesk-toggle [toggle|start|stop|status]   (no argument = toggle)
+cd "$(dirname "$(readlink -f "$0")")" && exec .venv/bin/python -m sdesk.launcher "$@"

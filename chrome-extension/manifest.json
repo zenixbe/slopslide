@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "sdesk tabs",
+  "version": "1.1.0",
+  "description": "Tells sdesk (the scrolling desktop on this computer) which tabs each Chrome window has, so its taskbar can show them as buttons, and switches to the tab you click there. Talks to 127.0.0.1 only; also sends the tab icons.",
+  "permissions": ["tabs", "alarms", "favicon"],
+  "background": { "service_worker": "background.js" },
+  "minimum_chrome_version": "116"
+}
