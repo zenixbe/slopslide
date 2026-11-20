@@ -162,6 +162,33 @@ class XWM:
                           "states": {a.replace("_NET_WM_STATE_", "") for a in self._atoms(w, "_NET_WM_STATE")}})
         return cands
 
+    def gap_obstacles(self, strip_xids):
+        """Rects of mapped windows that may lie over a gap of the strip and must keep their clicks: tool windows (UTILITY,
+        TOOLBAR) and anything transient for a window of the strip (``strip_xids``), such as a docked side panel or a
+        dialog."""
+        out = []
+        for xid in self._cardinals(self.root, "_NET_CLIENT_LIST"):
+            if xid in strip_xids or xid in self.exclude_xids():
+                continue
+            w = self.win(xid)
+            try:
+                if w.get_attributes().map_state != X.IsViewable:
+                    continue
+                if "_NET_WM_STATE_HIDDEN" in self._atoms(w, "_NET_WM_STATE"):
+                    continue
+                types = self._atoms(w, "_NET_WM_WINDOW_TYPE")
+                tool = bool(types) and types[0] in ("_NET_WM_WINDOW_TYPE_UTILITY", "_NET_WM_WINDOW_TYPE_TOOLBAR")
+                if not tool:
+                    parent = w.get_wm_transient_for()
+                    if parent is None or parent.id not in strip_xids:
+                        continue
+            except error.XError:
+                continue                                   # window vanished while we looked
+            rect = self.frame_rect(xid)
+            if rect is not None:
+                out.append(rect)
+        return out
+
     def sidebar_rect(self):
         """Rect of a floating widget sidebar on the right edge, or None."""
         from . import layout

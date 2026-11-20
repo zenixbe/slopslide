@@ -167,3 +167,46 @@ def test_the_fade_curve_removes_the_window_quickly_and_is_monotonic():
     assert layout.fade_alpha(0.1) < 0.3                                               # but not an abrupt start
     vals = [layout.fade_alpha(i / 50) for i in range(51)]
     assert vals == sorted(vals)
+
+
+# ---------------------------------------------------- zones clipped around windows over a gap (#9)
+from sdesk.layout import clip_zones, subtract
+
+
+def test_subtract_leaves_a_rect_without_overlap_alone():
+    r = Rect(0, 0, 40, 100)
+    assert subtract(r, Rect(50, 0, 10, 10)) == [r]
+
+
+def test_subtract_cuts_bands_and_side_pieces():
+    parts = subtract(Rect(0, 0, 40, 100), Rect(10, 20, 10, 30))
+    assert sorted(parts, key=lambda p: (p.y, p.x)) == [
+        Rect(0, 0, 40, 20), Rect(0, 20, 10, 30), Rect(20, 20, 20, 30), Rect(0, 50, 40, 50)]
+    assert sum(p.w * p.h for p in parts) == 40 * 100 - 10 * 30
+
+
+def test_clip_zone_around_a_panel_docked_against_the_right_window():
+    # the tasktree case: a tool window whose right part lies over the gap, from y=100 to y=700
+    zones = [(1, Rect(500, 0, 40, 1000))]
+    out = clip_zones(zones, [Rect(300, 100, 224, 600)], min_w=6, min_h=6)
+    assert sorted(out, key=lambda z: (z[1].y, z[1].x)) == [
+        (1, Rect(500, 0, 40, 100)), (1, Rect(524, 100, 16, 600)), (1, Rect(500, 700, 40, 300))]
+    hole = Rect(300, 100, 224, 600)
+    assert not any(r.intersects(hole) for _, r in out)
+
+
+def test_clip_drops_a_fully_covered_zone_and_slivers():
+    zones = [(0, Rect(0, 0, 30, 1000)), (2, Rect(600, 0, 20, 1000))]
+    out = clip_zones(zones, [Rect(-10, -10, 100, 2000), Rect(603, 0, 100, 997)], min_w=6, min_h=6)
+    # zone 0 is gone; zone 2 keeps a 3px-wide sliver (dropped) and a 3px-high band (dropped)
+    assert out == []
+
+
+def test_clip_without_holes_keeps_zones():
+    zones = [(0, Rect(0, 0, 30, 1000)), (1, Rect(500, 0, 20, 1000))]
+    assert clip_zones(zones, [], 6, 6) == zones
+
+
+def test_clip_with_several_holes_in_one_zone():
+    out = clip_zones([(3, Rect(0, 0, 20, 300))], [Rect(0, 0, 20, 100), Rect(0, 200, 20, 100)], 6, 6)
+    assert out == [(3, Rect(0, 100, 20, 100))]

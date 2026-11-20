@@ -908,3 +908,33 @@ def test_minimised_times_survive_through_the_state_file(tmp_path, monkeypatch):
     assert safety.load_minimized() == {12: 123.5, 7: 9.0}
     (tmp_path / "minimized.json").write_text("garbage")
     assert safety.load_minimized() == {}
+
+
+def test_gap_zones_leave_out_windows_lying_over_a_gap(setup):
+    b, c, _ = setup
+    f = {w: b.frames[w] for w in c.order}
+    left, right = f[2].right, f[3].x                       # the gap between the first two windows
+    panel = Rect(right - 300, 100, 316, 400)               # docked against window 3, 16px into it (CSD shadow)
+    seen = []
+    b.gap_obstacles = lambda strip: seen.append(set(strip)) or [panel]
+    zones = c.gap_zones()
+    assert seen == [set(c.order)]
+    assert not any(r.intersects(panel) for _, r in zones)
+    gap = [r for i, r in zones if i == 1]
+    assert sorted(gap, key=lambda r: r.y) == [Rect(left, 0, right - left, 100), Rect(left, 500, right - left, 500)]
+    assert sorted({i for i, _ in zones}) == [0, 1, 2, 3]  # the other gaps are untouched
+
+
+def test_refresh_zones_only_when_the_strip_is_at_rest(setup):
+    b, c, _ = setup
+    shown = []
+    c.on_zones = shown.append
+    c.refresh_zones()
+    assert shown and shown[-1] == c.gap_zones()
+    b.gap_obstacles = lambda strip: [Rect(0, 0, 3000, 3000)]
+    c.refresh_zones()
+    assert shown[-1] == []                                 # everything covered: no zones
+    c.reserve(1)                                           # strip moves: zones stay hidden until it settles
+    shown.clear()
+    c.refresh_zones()
+    assert shown == []

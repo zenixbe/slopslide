@@ -247,6 +247,8 @@ def main(argv=None):
         state["polls"] += 1
         if state["polls"] % 4 == 0:
             ctl.reconcile()
+        if state["polls"] % 10 == 0:
+            ctl.refresh_zones()                   # a tool window or dialog over a gap may have moved: keep its clicks
         if state["polls"] % 20 == 0:
             ctl.update_inset()                    # a floating sidebar may have appeared, moved or been resized
             fade.keep_stacked()                   # and kwin may have stacked something above the cover
