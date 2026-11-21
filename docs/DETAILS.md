@@ -9,6 +9,11 @@ along it. A custom taskbar mirrors the strip, one button per window.
     ./run.sh            # start (switches Deepin's own dock off while running)
     Ctrl+C              # stop: every window goes back where it was, dock comes back
 
+The desktop icon (`launcher/install.sh`) and `sdesk-toggle` start the same command and add your own options from
+`~/.config/sdesk/args` (or `$XDG_CONFIG_HOME/sdesk/args`): shell-style words on any number of lines, `#` starts a comment.
+
+    mkdir -p ~/.config/sdesk && echo '--sound-match logitech' > ~/.config/sdesk/args
+
 | You do | What happens |
 |---|---|
 | **Super + mouse wheel** | scroll the desktop left/right (plain wheel and Ctrl+wheel stay untouched, so apps keep working). You can scroll until the first or last window is in the middle of the screen |
@@ -194,12 +199,13 @@ icons stay where they are: these two boxes hang off the left side of the row. Ho
   mouse wheel over the slider or the sound box (5% per notch); middle-click either one to mute or unmute (the slider greys
   out while muted). It follows volume changes made elsewhere, such as the keyboard's volume keys.
 
-A click cycles through the outputs whose name contains `logitech` (the default of `--sound-match`; change it to match your
-headset), skipping the built-in audio and HDMI; if fewer than two match it cycles through every real output. It talks to the sound server with
+By default a click cycles through every real output. With `--sound-match TEXT` it cycles only through the outputs whose
+name contains TEXT (for example `logitech` for two Logitech headsets), skipping the built-in audio and HDMI; if fewer than two
+match it cycles through every real output again. It talks to the sound server with
 `pactl` in a background thread, so the bar never waits for it, and it follows changes made elsewhere (the Deepin control
 center, a headset being plugged in).
 
-    ./run.sh --sound-match "usb"    # cycle through the outputs containing "usb" instead
+    ./run.sh --sound-match "usb"    # cycle only through the outputs containing "usb"
     ./run.sh --sound off            # no sound box
 
 ## Thread badges (Claude Code, T3 Code)
