@@ -149,3 +149,34 @@ def cover_zone(sidebar, fade, screen_w):
 def directly_below(children, xid, sibling):
     """True if ``xid`` sits immediately under ``sibling`` in a bottom-to-top list of window ids."""
     return xid in children and sibling in children and children.index(xid) == children.index(sibling) - 1
+
+
+def subtract(rect, hole):
+    """The parts of ``rect`` that ``hole`` does not cover: 0 to 4 Rects (full-width bands above and below the hole, and
+    the pieces left and right of it in between)."""
+    if not rect.intersects(hole):
+        return [rect]
+    out = []
+    top, bottom = max(rect.y, hole.y), min(rect.bottom, hole.bottom)
+    if hole.y > rect.y:
+        out.append(Rect(rect.x, rect.y, rect.w, hole.y - rect.y))
+    if hole.bottom < rect.bottom:
+        out.append(Rect(rect.x, hole.bottom, rect.w, rect.bottom - hole.bottom))
+    if hole.x > rect.x:
+        out.append(Rect(rect.x, top, hole.x - rect.x, bottom - top))
+    if hole.right < rect.right:
+        out.append(Rect(hole.right, top, rect.right - hole.right, bottom - top))
+    return out
+
+
+def clip_zones(zones, holes, min_w=1, min_h=1):
+    """Cut ``holes`` (Rects of windows that lie over a gap) out of the click ``zones`` = [(index, Rect)], so that a zone
+    never catches clicks meant for such a window. A zone may fall apart into several pieces with the same index; pieces
+    narrower than ``min_w`` or lower than ``min_h`` are dropped, and so is a zone that is covered entirely."""
+    out = []
+    for idx, z in zones:
+        pieces = [z]
+        for hole in holes:
+            pieces = [p for piece in pieces for p in subtract(piece, hole)]
+        out.extend((idx, p) for p in pieces if p.w >= min_w and p.h >= min_h)
+    return out

@@ -89,6 +89,7 @@ class Controller:
         self._centered = None        # the window nearest the middle of the screen: the one the taskbar highlights
         self._size_tries = {}       # wid -> times we re-sent its size because it did not take it
         self._last_vis = ()
+        self._settled = False       # the strip is at rest and its gap zones are shown
 
     # ------------------------------------------------------------- queries
     def _work_area(self):
@@ -319,6 +320,7 @@ class Controller:
         skip = self.drag["wid"] if self.drag and self.drag["source"] == "window" else None
         keep = set()
         self.free_rects = {k: v for k, v in rects.items() if k not in (PLACEHOLDER, RESERVED)}
+        self._settled = False
         self.on_zones([])          # stale while things move; tick() restores them when settled
         for ident, rect in rects.items():
             if ident in (PLACEHOLDER, RESERVED):
@@ -373,8 +375,15 @@ class Controller:
             if vis != self._last_vis:       # taskbar highlights visible windows
                 self._last_vis = vis
                 self.on_change()
+            self._settled = True
             self.on_zones(self.gap_zones())
         return moving
+
+    def refresh_zones(self):
+        """Publish the gap zones again if the strip is at rest: a window lying over a gap (a tool window, a dialog) may
+        have appeared, moved, been resized or gone. The backend skips the work if nothing changed."""
+        if self._settled:
+            self.on_zones(self.gap_zones())
 
     # ------------------------------------------------- add-a-window slot
     def reserve(self, idx, timeout=None):
@@ -428,7 +437,8 @@ class Controller:
             if right - left >= MIN_ZONE:
                 idx = self.order.index(vis[i]) if i < n else len(self.order)   # insert before the window to the right
                 zones.append((idx, Rect(left, a.y, right - left, a.h)))
-        return zones
+        holes = getattr(self.b, "gap_obstacles", lambda strip: [])(set(self.order)) if zones else []
+        return layout.clip_zones(zones, holes, MIN_ZONE, MIN_ZONE)
 
     def resize_target(self, idx):
         """(window, side) the user means by dragging the gap at insert index ``idx``: the window left of the gap, by its
