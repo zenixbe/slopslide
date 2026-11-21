@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Batterij in taskbar</title>
+<!-- Mockups for issue #11: battery of the mouse and the Dygma Defy halves in the sdesk taskbar.
+     Base: docs/media/taskbar.png (the real bar). The head items (clock, battery, volume, sound) are "plain":
+     no box, no border, white text at 0.82 with a 1px dark shadow, like _paint_plain in sdesk/taskbar.py. -->
+<style>
+  :root {
+    --page: #0f1216;
+    --card: #171b21;
+    --line: #2a303a;
+    --ink: #e8ecf1;
+    --muted: #9aa4b2;
+    --text: rgba(255,255,255,0.82);          /* plain head item text: 0.82 */
+    --shadow: 0 1px 0 rgba(0,0,0,0.55);      /* the 1 px soft shadow */
+    --accent: rgb(20,184,166);               /* ACCENT (0.08, 0.72, 0.65) */
+    --edge: rgb(115,237,217);                /* ACCENT_EDGE (0.45, 0.93, 0.85) */
+    --low: rgb(245,158,10);                  /* DOT_COLORS waiting (0.96, 0.62, 0.04) */
+    --track: rgba(255,255,255,0.28);         /* slider track */
+    --off: rgba(255,255,255,0.30);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 "Noto Sans", "DejaVu Sans", sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 28px 16px 40px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 22px; }
+  .variant { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 18px 20px; margin-bottom: 22px; }
+  .variant h2 { font-size: 17px; margin: 0 0 2px; }
+  .variant h2 b { display: inline-block; width: 26px; height: 26px; line-height: 26px; text-align: center; border-radius: 6px; background: var(--accent); color: #04231f; margin-right: 8px; font-size: 15px; }
+  .pc { color: var(--muted); margin: 0 0 14px; }
+  .pc span { color: var(--ink); }
+  .label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; }
+
+  /* ---------- the bar, 1:1 --------------------------------------------------------- */
+  .bar { position: relative; height: 68px; border-radius: 6px; overflow: hidden; width: 100%; }
+  .bar .wall { position: absolute; inset: 0 auto 0 0; width: 100%;
+               background: url(../../media/taskbar.png) 0 -20px / 2400% 88px no-repeat; }      /* x 0..79 of the shot, stretched */
+  .bar .shot { position: absolute; top: 0; bottom: 0; right: 0; background: url(../../media/taskbar.png) -168px -20px no-repeat;
+               -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 30px); mask-image: linear-gradient(90deg, transparent 0, #000 30px); }
+  .heads { position: absolute; top: 15px; height: 38px; left: 24px; display: flex; align-items: center; }
+  .slot { height: 38px; display: flex; align-items: center; padding: 0 18px; color: var(--text); text-shadow: var(--shadow); white-space: nowrap; }
+  .slot.clock { padding: 0 12px; }
+
+  /* volume slider: 130 px, track 4 px, knob r 6 */
+  .vol { width: 142px; padding: 0 16px; position: relative; height: 38px; }
+  .vol .t { position: absolute; left: 16px; right: 16px; top: 17px; height: 4px; border-radius: 2px; background: var(--track); box-shadow: 0 1px 0 rgba(0,0,0,.3); }
+  .vol .f { position: absolute; left: 16px; width: 70px; top: 17px; height: 4px; border-radius: 2px; background: var(--edge); opacity: .95; }
+  .vol .k { position: absolute; left: 80px; top: 13px; width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,.95); box-shadow: 0 1px 0 rgba(0,0,0,.35); }
+  .sound svg { width: 24px; height: 24px; margin-right: 8px; }
+
+  /* the new item gets a faint marker in the context bar so Arne sees where it goes */
+  .new { position: relative; }
+  .new::after { content: ""; position: absolute; inset: -2px 4px; border: 1px dashed rgba(115,237,217,.55); border-radius: 6px; pointer-events: none; }
+
+  /* ---------- zoomed state grid -------------------------------------------------------- */
+  .states { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .state { border-radius: 6px; overflow: hidden; position: relative; }
+  .state .wall { height: 96px; background: url(../../media/taskbar.png) 0 -44px / 2400% 200% no-repeat; display: flex; align-items: center; justify-content: center; }
+  .state .z { zoom: 2; }
+  .state .cap { font-size: 12.5px; padding: 6px 10px; background: #12161b; color: var(--muted); border-top: 1px solid var(--line); }
+  .state .cap b { color: var(--ink); font-weight: 600; }
+  @media (max-width: 760px) { .states { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+  /* tooltip, like a GTK tooltip on the dark theme */
+  .tipwrap { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .tip { background: rgba(20,22,26,.96); border: 1px solid rgba(255,255,255,.14); border-radius: 6px; padding: 7px 10px; font-size: 13px; color: #eef1f4; box-shadow: 0 6px 18px rgba(0,0,0,.45); }
+  .tip div { display: flex; gap: 14px; justify-content: space-between; }
+  .tip .muted { color: #9aa4b2; }
+  .tip .lo { color: var(--low); }
+  .tip .ch { color: var(--edge); }
+
+  /* ---------- device glyphs ------------------------------------------------------------ */
+  svg.ic { width: 18px; height: 18px; flex: none; }
+  svg.ic * { vector-effect: non-scaling-stroke; }
+  .ic-st { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---------- A: icon + percentage ---------------------------------------------------- */
+  .a { display: flex; align-items: center; gap: 14px; }
+  .a .dev { display: flex; align-items: center; gap: 5px; color: var(--text); text-shadow: var(--shadow); font-variant-numeric: tabular-nums; }
+  .a .dev svg { filter: drop-shadow(0 1px 0 rgba(0,0,0,.55)); }
+  .a .dev .lr { font-size: 10px; font-weight: 700; margin-left: -4px; align-self: flex-end; margin-bottom: 9px; }
+  .a .dev.low { color: var(--low); }
+  .a .dev.chg { color: var(--edge); }
+  .a .dev.off { color: var(--off); }
+  .a .bolt { width: 10px; height: 14px; margin-right: -2px; }
+
+  /* ---------- B: three thin bars, stacked ----------------------------------------------- */
+  .b { display: grid; grid-template-columns: auto 44px auto; column-gap: 5px; row-gap: 5px; align-items: center; }
+  .b .k { font-size: 9px; font-weight: 700; line-height: 1; color: rgba(255,255,255,.7); text-shadow: var(--shadow); width: 8px; text-align: center; }
+  .b .t { position: relative; height: 4px; border-radius: 2px; background: var(--track); box-shadow: 0 1px 0 rgba(0,0,0,.3); }
+  .b .t i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--edge); opacity: .95; }
+  .b .t.low i { background: var(--low); }
+  .b .t.off { background: none; box-shadow: none; border-top: 1px dashed rgba(255,255,255,.35); height: 0; }
+  .b .t.chg i { background: repeating-linear-gradient(115deg, var(--edge) 0 4px, rgba(115,237,217,.55) 4px 7px); }
+  .b .e { width: 7px; height: 9px; display: flex; align-items: center; }
+  .b .e svg { width: 7px; height: 9px; }
+
+  /* ---------- C: rings ------------------------------------------------------------------ */
+  .c { display: flex; align-items: center; gap: 8px; }
+  .c .ring { position: relative; width: 24px; height: 24px; color: var(--text); }
+  .c .ring svg.r { position: absolute; inset: 0; width: 24px; height: 24px; transform: rotate(-90deg); filter: drop-shadow(0 1px 0 rgba(0,0,0,.5)); }
+  .c .ring .g { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; text-shadow: var(--shadow); }
+  .c .ring .g svg { width: 12px; height: 12px; }
+  .c .ring.low { color: var(--low); }
+  .c .ring.chg { color: var(--edge); }
+  .c .ring.off { color: var(--off); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Batterij van muis en Dygma Defy in de taskbar</h1>
+  <p class="lead">Issue #11. Plaats: tussen de klok en de volumeschuif. Altijd zichtbaar. Stijl: zoals klok en volume, dus zonder doos en zonder rand.
+  De balk bovenaan elke variant is 1:1 op de echte taskbar (<code>docs/media/taskbar.png</code>); de stippellijn toont alleen waar het nieuwe item komt.
+  Daaronder: de vier toestanden, 2× vergroot. Laag = ≤ 20 % (oranje, dezelfde kleur als de badge "wacht op jou").</p>
+
+  <!-- ============================== A ============================== -->
+  <section class="variant" id="a">
+    <h2><b>A</b>Icoon + procent</h2>
+    <p class="pc"><span>Voordeel:</span> alle drie de waarden staan er altijd als getal; geen hover nodig. <span>Kost:</span> breedst (≈ 190 px); duwt volume en geluid naar links.</p>
+    <div class="label">In de taskbar (1:1)</div>
+    <div class="bar">
+      <div class="wall"></div>
+      <div class="shot" style="left:640px"></div>
+      <div class="heads">
+        <div class="slot clock">20:22</div>
+        <div class="slot new">
+          <div class="a">
+            <span class="dev"><svg class="ic" viewBox="0 0 18 18"><rect class="ic-st" x="5" y="2" width="8" height="14" rx="4"/><path class="ic-st" d="M9 2v5"/></svg>85%</span>
+            <span class="dev chg"><svg class="ic" viewBox="0 0 18 18"><rect class="ic-st" x="2" y="4" width="14" height="10" rx="2"/><path class="ic-st" d="M5 7.5h.01M8 7.5h.01M11 7.5h.01M5 10.5h8"/></svg><span class="lr">L</span><svg class="bolt" viewBox="0 0 10 14"><path d="M6 0 1 8h3l-1 6 5-8H5z" fill="currentColor"/></svg>100%</span>
+            <span class="dev low"><svg class="ic" viewBox="0 0 18 18"><rect class="ic-st" x="2" y="4" width="14" height="10" rx="2"/><path class="ic-st" d="M5 7.5h.01M8 7.5h.01M11 7.5h.01M5 10.5h8"/></svg><span class="lr">R</span>18%</span>
+          </div>
+        </div>
+        <div class="vol"><div class="t"></div><div class="f"></div><div class="k"></div></div>
+        <div class="slot sound"><svg viewBox="0 0 24 24"><path d="M4 14v-2a8 8 0 0 1 16 0v2" fill="none" stroke="rgba(255,255,255,.85)" stroke-width="2"/><rect x="3" y="13" width="5" height="7" rx="2" fill="rgba(255,255,255,.85)"/><rect x="16" y="13" width="5" height="7" rx="2" fill="rgba(255,255,255,.85)"/></svg>Headset</div>
+      </div>
+    </div>
+    <div class="label">Toestanden (2×)</div>
+    <div class="states">
+      <div class="state"><div class="wall"><div class="z a">
+        <span class="dev"><svg class="ic" viewBox="0 0 18 18"><rect class="ic-st" x="5" y="2" width="8" height="14" rx="4"/><path class="ic-st" d="M9 2v5"/></svg>85%</span>
+      </div></div><div class="cap"><b>Normaal</b> · muis 85 %</div></div>
+      <div class="state"><div class="wall"><div class="z a">
+        <span class="dev low"><svg class="ic" viewBox="0 0 18 18"><rect class="ic-st" x="2" y="4" width="14" height="10" rx="2"/><path class="ic-st" d="M5 7.5h.01M8 7.5h.01M11 7.5h.01M5 10.5h8"/></svg><span class="lr">R</span>18%</span>
+      </div></div><div class="cap"><b>Laag</b> · rechterhelft 18 %, oranje</div></div>
+      <div class="state"><div class="wall"><div class="z a">
+        <span class="dev chg"><svg class="ic" viewBox="0 0 18 18"><rect class="ic-st" x="2" y="4" width="14" height="10" rx="2"/><path class="ic-st" d="M5 7.5h.01M8 7.5h.01M11 7.5h.01M5 10.5h8"/></svg><span class="lr">L</span><svg class="bolt" viewBox="0 0 10 14"><path d="M6 0 1 8h3l-1 6 5-8H5z" fill="currentColor"/></svg>64%</span>
+      </div></div><div class="cap"><b>Laden</b> · bliksem + teal</div></div>
+      <div class="state"><div class="wall"><div class="z a">
+        <span class="dev off"><svg class="ic" viewBox="0 0 18 18"><rect class="ic-st" x="5" y="2" width="8" height="14" rx="4"/><path class="ic-st" d="M9 2v5"/></svg>–</span>
+      </div></div><div class="cap"><b>Niet beschikbaar</b> · gedimd, streepje</div></div>
+    </div>
+  </section>
+
+  <!-- ============================== B ============================== -->
+  <section class="variant" id="b">
+    <h2><b>B</b>Drie balkjes in één groep</h2>
+    <p class="pc"><span>Voordeel:</span> smal (≈ 70 px) en dezelfde vormtaal als de volumeschuif ernaast. <span>Kost:</span> geen getallen; het exacte procent staat pas in de tooltip.</p>
+    <div class="label">In de taskbar (1:1)</div>
+    <div class="bar">
+      <div class="wall"></div>
+      <div class="shot" style="left:520px"></div>
+      <div class="heads">
+        <div class="slot clock">20:22</div>
+        <div class="slot new">
+          <div class="b">
+            <span class="k">M</span><span class="t"><i style="width:85%"></i></span><span class="e"></span>
+            <span class="k">L</span><span class="t chg"><i style="width:100%"></i></span><span class="e"><svg viewBox="0 0 10 14"><path d="M6 0 1 8h3l-1 6 5-8H5z" fill="rgb(115,237,217)"/></svg></span>
+            <span class="k">R</span><span class="t low"><i style="width:18%"></i></span><span class="e"></span>
+          </div>
+        </div>
+        <div class="vol"><div class="t"></div><div class="f"></div><div class="k"></div></div>
+        <div class="slot sound"><svg viewBox="0 0 24 24"><path d="M4 14v-2a8 8 0 0 1 16 0v2" fill="none" stroke="rgba(255,255,255,.85)" stroke-width="2"/><rect x="3" y="13" width="5" height="7" rx="2" fill="rgba(255,255,255,.85)"/><rect x="16" y="13" width="5" height="7" rx="2" fill="rgba(255,255,255,.85)"/></svg>Headset</div>
+      </div>
+    </div>
+    <div class="label">Toestanden (2×) en tooltip</div>
+    <div class="states">
+      <div class="state"><div class="wall"><div class="z b">
+        <span class="k">M</span><span class="t"><i style="width:85%"></i></span><span class="e"></span>
+        <span class="k">L</span><span class="t"><i style="width:100%"></i></span><span class="e"></span>
+        <span class="k">R</span><span class="t"><i style="width:92%"></i></span><span class="e"></span>
+      </div></div><div class="cap"><b>Normaal</b> · 85 / 100 / 92 %</div></div>
+      <div class="state"><div class="wall"><div class="z b">
+        <span class="k">M</span><span class="t"><i style="width:85%"></i></span><span class="e"></span>
+        <span class="k">L</span><span class="t"><i style="width:100%"></i></span><span class="e"></span>
+        <span class="k">R</span><span class="t low"><i style="width:18%"></i></span><span class="e"></span>
+      </div></div><div class="cap"><b>Laag</b> · R 18 %, oranje balk</div></div>
+      <div class="state"><div class="wall"><div class="z b">
+        <span class="k">M</span><span class="t"><i style="width:85%"></i></span><span class="e"></span>
+        <span class="k">L</span><span class="t chg"><i style="width:64%"></i></span><span class="e"><svg viewBox="0 0 10 14"><path d="M6 0 1 8h3l-1 6 5-8H5z" fill="rgb(115,237,217)"/></svg></span>
+        <span class="k">R</span><span class="t"><i style="width:92%"></i></span><span class="e"></span>
+      </div></div><div class="cap"><b>Laden</b> · L gestreept + bliksem</div></div>
+      <div class="state"><div class="wall"><div class="z b">
+        <span class="k" style="opacity:.45">M</span><span class="t off"></span><span class="e"></span>
+        <span class="k">L</span><span class="t"><i style="width:100%"></i></span><span class="e"></span>
+        <span class="k" style="opacity:.45">R</span><span class="t off"></span><span class="e"></span>
+      </div></div><div class="cap"><b>Niet beschikbaar</b> · M en R: stippellijn</div></div>
+    </div>
+    <div class="label">Tooltip bij hover</div>
+    <div class="tipwrap"><div class="tip">
+      <div><span>Muis</span><span>85 %</span></div>
+      <div><span>Defy links</span><span class="ch">100 % · laadt</span></div>
+      <div><span>Defy rechts</span><span class="lo">18 %</span></div>
+      <div class="muted" style="font-size:12px;margin-top:3px">Bijgewerkt 20:21</div>
+    </div></div>
+  </section>
+
+  <!-- ============================== C ============================== -->
+  <section class="variant" id="c">
+    <h2><b>C</b>Ringen</h2>
+    <p class="pc"><span>Voordeel:</span> rustig, een apparaat per ring; laag en laden vallen op door kleur en icoon. <span>Kost:</span> procent schat je uit de boog; exact getal alleen in de tooltip.</p>
+    <div class="label">In de taskbar (1:1)</div>
+    <div class="bar">
+      <div class="wall"></div>
+      <div class="shot" style="left:560px"></div>
+      <div class="heads">
+        <div class="slot clock">20:22</div>
+        <div class="slot new">
+          <div class="c">
+            <span class="ring"><svg class="r" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="2.5"/><circle cx="12" cy="12" r="10" fill="none" stroke="rgb(115,237,217)" stroke-width="2.5" stroke-linecap="round" pathLength="100" stroke-dasharray="85 100"/></svg><span class="g"><svg viewBox="0 0 12 12"><rect x="3.5" y="1" width="5" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 1v3.5" stroke="currentColor" stroke-width="1.3"/></svg></span></span>
+            <span class="ring chg"><svg class="r" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="2.5"/><circle cx="12" cy="12" r="10" fill="none" stroke="rgb(115,237,217)" stroke-width="2.5" stroke-linecap="round" pathLength="100" stroke-dasharray="100 100"/></svg><span class="g"><svg viewBox="0 0 10 14" style="width:9px;height:12px"><path d="M6 0 1 8h3l-1 6 5-8H5z" fill="currentColor"/></svg></span></span>
+            <span class="ring low"><svg class="r" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="2.5"/><circle cx="12" cy="12" r="10" fill="none" stroke="rgb(245,158,10)" stroke-width="2.5" stroke-linecap="round" pathLength="100" stroke-dasharray="18 100"/></svg><span class="g">R</span></span>
+          </div>
+        </div>
+        <div class="vol"><div class="t"></div><div class="f"></div><div class="k"></div></div>
+        <div class="slot sound"><svg viewBox="0 0 24 24"><path d="M4 14v-2a8 8 0 0 1 16 0v2" fill="none" stroke="rgba(255,255,255,.85)" stroke-width="2"/><rect x="3" y="13" width="5" height="7" rx="2" fill="rgba(255,255,255,.85)"/><rect x="16" y="13" width="5" height="7" rx="2" fill="rgba(255,255,255,.85)"/></svg>Headset</div>
+      </div>
+    </div>
+    <div class="label">Toestanden (2×) en tooltip</div>
+    <div class="states">
+      <div class="state"><div class="wall"><div class="z c">
+        <span class="ring"><svg class="r" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="2.5"/><circle cx="12" cy="12" r="10" fill="none" stroke="rgb(115,237,217)" stroke-width="2.5" stroke-linecap="round" pathLength="100" stroke-dasharray="85 100"/></svg><span class="g"><svg viewBox="0 0 12 12"><rect x="3.5" y="1" width="5" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 1v3.5" stroke="currentColor" stroke-width="1.3"/></svg></span></span>
+        <span class="ring"><svg class="r" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="2.5"/><circle cx="12" cy="12" r="10" fill="none" stroke="rgb(115,237,217)" stroke-width="2.5" stroke-linecap="round" pathLength="100" stroke-dasharray="100 100"/></svg><span class="g">L</span></span>
+        <span class="ring"><svg class="r" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="2.5"/><circle cx="12" cy="12" r="10" fill="none" stroke="rgb(115,237,217)" stroke-width="2.5" stroke-linecap="round" pathLength="100" stroke-dasharray="92 100"/></svg><span class="g">R</span></span>
+      </div></div><div class="cap"><b>Normaal</b> · 85 / 100 / 92 %</div></div>
+      <div class="state"><div class="wall"><div class="z c">
+        <span class="ring low"><svg class="r" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="2.5"/><circle cx="12" cy="12" r="10" fill="none" stroke="rgb(245,158,10)" stroke-width="2.5" stroke-linecap="round" pathLength="100" stroke-dasharray="18 100"/></svg><span class="g">R</span></span>
+      </div></div><div class="cap"><b>Laag</b> · R 18 %, oranje boog</div></div>
+      <div class="state"><div class="wall"><div class="z c">
+        <span class="ring chg"><svg class="r" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="2.5"/><circle cx="12" cy="12" r="10" fill="none" stroke="rgb(115,237,217)" stroke-width="2.5" stroke-linecap="round" pathLength="100" stroke-dasharray="64 100"/></svg><span class="g"><svg viewBox="0 0 10 14" style="width:9px;height:12px"><path d="M6 0 1 8h3l-1 6 5-8H5z" fill="currentColor"/></svg></span></span>
+      </div></div><div class="cap"><b>Laden</b> · bliksem vervangt de letter</div></div>
+      <div class="state"><div class="wall"><div class="z c">
+        <span class="ring off"><svg class="r" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="1.5" stroke-dasharray="2.5 2.5"/></svg><span class="g"><svg viewBox="0 0 12 12"><rect x="3.5" y="1" width="5" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 1v3.5" stroke="currentColor" stroke-width="1.3"/></svg></span></span>
+      </div></div><div class="cap"><b>Niet beschikbaar</b> · gestippelde ring, gedimd</div></div>
+    </div>
+    <div class="label">Tooltip bij hover</div>
+    <div class="tipwrap"><div class="tip">
+      <div><span>Muis</span><span>85 %</span></div>
+      <div><span>Defy links</span><span class="ch">100 % · laadt</span></div>
+      <div><span>Defy rechts</span><span class="lo">18 %</span></div>
+      <div class="muted" style="font-size:12px;margin-top:3px">Bijgewerkt 20:21</div>
+    </div></div>
+  </section>
+</main>
+<script>
+  // ?only=a|b|c shows one variant (used for the per-variant PNG export)
+  var only = new URLSearchParams(location.search).get("only");
+  if (only) document.querySelectorAll(".variant").forEach(function (s) { if (s.id !== only) s.remove(); });
+  if (only) document.querySelectorAll("h1, .lead").forEach(function (n) { n.remove(); });
+</script>
+</body>
+</html>
