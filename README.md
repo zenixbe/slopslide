@@ -158,7 +158,8 @@ python3 -m venv --system-site-packages .venv
 
 `./run.sh` also switches Deepin's own dock off while it runs. On another desktop, use
 `.venv/bin/python -m sdesk --bar top` (leaves the dock alone). A desktop icon to start and stop it:
-`launcher/install.sh`.
+`launcher/install.sh`. The icon and `sdesk-toggle` also read your own options from `~/.config/sdesk/args`
+(for example `--sound-match logitech`).
 
 ## Safety: nothing survives a reboot
 

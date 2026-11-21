@@ -34,3 +34,26 @@ def test_this_process_is_never_taken_for_sdesk():
 
 def test_an_unknown_command_is_refused(capsys):
     assert launcher.main(["bogus"]) == 2
+
+
+def test_user_args_are_read_from_the_config_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert launcher.user_args() == []                                       # no file: no extra options
+    (tmp_path / "sdesk").mkdir()
+    (tmp_path / "sdesk" / "args").write_text("# my headsets\n--sound-match logitech\n--bar 'top'  # comment\n")
+    assert launcher.user_args() == ["--sound-match", "logitech", "--bar", "top"]
+
+
+def test_start_passes_the_user_args_to_sdesk(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    (tmp_path / "sdesk").mkdir()
+    (tmp_path / "sdesk" / "args").write_text("--sound-match logitech\n")
+    monkeypatch.setattr(launcher, "LOG", str(tmp_path / "sdesk.log"))
+    monkeypatch.setattr(launcher.time, "sleep", lambda s: None)
+    monkeypatch.setattr(launcher, "notify", lambda text: None)
+    spawned = []
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda cmd, **k: spawned.append(cmd))
+    state = iter([[]] + [[123]] * 50)
+    monkeypatch.setattr(launcher, "running", lambda: next(state))
+    assert launcher.start() == 0
+    assert spawned[0][1:] == ["-m", "sdesk", "--disable-dock", "--sound-match", "logitech"]

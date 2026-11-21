@@ -41,8 +41,9 @@ def parse_args(argv):
     p.add_argument("--bar-height", type=int, default=52)
     p.add_argument("--sound", default="auto", choices=("auto", "off"),
                    help="show the current sound output left of the taskbar icons (click = next output); 'off' hides it")
-    p.add_argument("--sound-match", default="logitech", metavar="TEXT",
-                   help="a click cycles through the outputs whose name contains TEXT (all outputs if fewer than two match)")
+    p.add_argument("--sound-match", default="", metavar="TEXT",
+                   help="a click cycles only through the outputs whose name contains TEXT, e.g. 'logitech' "
+                        "(default: every real output; also every one if fewer than two match)")
     p.add_argument("--nag-after", type=int, default=30, metavar="MIN",
                    help="a window minimised for this many minutes shakes its taskbar box now and then (0 = never)")
     p.add_argument("--nag-every", type=int, default=5, metavar="MIN", help="minutes between those shakes")

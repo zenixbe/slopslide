@@ -96,8 +96,8 @@ def parse_sinks(text):
 
 
 def candidates(sinks, match):
-    """The outputs a click cycles through: those matching ``match`` (default 'logitech') if there are at least two, else every
-    real output."""
+    """The outputs a click cycles through: those matching ``match`` (for example 'logitech') if there are at least two, else every
+    real output (also when ``match`` is empty, the default)."""
     if match:
         wanted = [s for s in sinks if match.lower() in s.haystack]
         if len(wanted) >= 2:
@@ -155,7 +155,7 @@ class Watcher:
     """Keeps the taskbar's idea of the sound output current. ``on_state((sinks, default))`` is called from a worker thread
     whenever it changes (wrap it in GLib.idle_add)."""
 
-    def __init__(self, on_state, match="logitech"):
+    def __init__(self, on_state, match=""):
         self.on_state = on_state
         self.match = match
         self.state = None

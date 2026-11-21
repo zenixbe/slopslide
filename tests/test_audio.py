@@ -78,3 +78,10 @@ def test_a_wheel_notch_moves_five_percent_and_stays_within_zero_and_hundred():
     assert audio.step_volume(50, +1) == 55 and audio.step_volume(50, -1) == 45
     assert audio.step_volume(52, +1) == 55                             # lands on a multiple of five
     assert audio.step_volume(100, +1) == 100 and audio.step_volume(0, -1) == 0
+
+
+def test_the_default_match_cycles_through_every_real_output():
+    sinks = audio.parse_sinks(SINKS)
+    assert audio.candidates(sinks, "") == list(sinks)
+    from sdesk import app
+    assert app.parse_args([]).sound_match == ""
