@@ -1,0 +1,34 @@
+
+.sdesk-toggl-search, .sdesk-toggl-desc {
+    background-color: rgba(255,255,255,0.06); color: #f1f5f9; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.14); padding: 6px 10px; box-shadow: none; caret-color: #73edd9;
+}
+.sdesk-toggl-search:focus, .sdesk-toggl-desc:focus { border-color: rgba(115,237,217,0.85); }
+.sdesk-toggl-desc:disabled, .sdesk-toggl-desc.readonly, .sdesk-toggl-desc.readonly:focus {
+    color: #94a3b8; background-color: rgba(255,255,255,0.03); border-style: dashed; border-color: rgba(255,255,255,0.18);
+}
+.sdesk-toggl-section { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: #94a3b8; padding: 8px 12px 2px 12px; }
+.sdesk-toggl-chip {
+    font-size: 12px; font-weight: 600; color: #e2e8f0; background-color: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; padding: 3px 8px;
+}
+.sdesk-toggl-chip.empty { color: #64748b; font-weight: 400; }
+.sdesk-toggl-big { font-size: 22px; font-weight: 700; color: #f1f5f9; font-feature-settings: "tnum"; }
+.sdesk-toggl-big.forgot { color: #f87171; }
+.sdesk-toggl-dim { font-size: 11px; color: #94a3b8; }
+.sdesk-toggl-error { font-size: 11px; color: #fca5a5; padding: 4px 12px 0 12px; }
+.sdesk-toggl-warn {
+    font-size: 12px; font-weight: 600; color: #fecaca; background-color: rgba(220,38,38,0.22);
+    border: 1px solid rgba(248,113,113,0.5); border-radius: 8px; padding: 6px 10px; margin: 2px 0 6px 0;
+}
+button.sdesk-toggl-btn {
+    background-image: none; background-color: rgba(255,255,255,0.08); color: #e2e8f0; text-shadow: none;
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; padding: 4px 12px; box-shadow: none;
+}
+button.sdesk-toggl-btn:hover { background-color: rgba(255,255,255,0.14); }
+button.sdesk-toggl-btn.go { background-color: rgba(20,184,166,0.85); border-color: rgba(115,237,217,0.9); color: #fff; }
+button.sdesk-toggl-btn.go:hover { background-color: rgba(20,184,166,1); }
+button.sdesk-toggl-btn.stop { background-color: rgba(127,29,29,0.75); border-color: rgba(248,113,113,0.6); color: #fee2e2; }
+button.sdesk-toggl-btn:disabled { opacity: 0.45; }
+list.sdesk-items row.sdesk-toggl-row { padding: 5px 12px; margin: 1px 0; }
+list.sdesk-items row.sdesk-toggl-row .sdesk-item-title { font-size: 13px; }

@@ -17,9 +17,10 @@ from . import audio, battery, chrometabs, favicons, toggl  # noqa: E402
 from .baranim import Row  # noqa: E402
 from .menu import shorten, window_label  # noqa: E402
 from .shapes import rounded_rects  # noqa: E402
+from . import theme as themes  # noqa: E402
 
-ACCENT = (0.08, 0.72, 0.65)             # teal
-ACCENT_EDGE = (0.45, 0.93, 0.85)        # lighter teal for edges
+# All colours come from the current theme (sdesk/theme.py, issue #22): T.accent / T.accent_edge were ACCENT /
+# ACCENT_EDGE, and T.text(a), T.shade(a), T.tint(a), T.line(a) were white or black with alpha ``a``.
 DND_TARGET = "sdesk/window"
 
 CSS = b"window#sdesk-bar { background: transparent; }"
@@ -79,14 +80,15 @@ class DropOverlay(Gtk.Window):
         cr.set_operator(cairo.OPERATOR_OVER)
         b = self.BORDER
         r = 8
+        T = themes.current()
         self._round(cr, b / 2, b / 2, w - b, h - b, r)
         if self._composited:
-            cr.set_source_rgba(*ACCENT, 0.16)
+            cr.set_source_rgba(*T.accent, 0.16)
             cr.fill_preserve()
         else:
-            cr.set_source_rgba(*ACCENT, 1)
+            cr.set_source_rgba(*T.accent, 1)
             cr.fill_preserve()
-        cr.set_source_rgba(*ACCENT, 0.95)
+        cr.set_source_rgba(*T.accent, 0.95)
         cr.set_line_width(b)
         cr.stroke()
         return True
@@ -111,6 +113,11 @@ def blur(pix, strength=12):
 
 def lerp(a, b, t):
     return tuple(x + (y - x) * t for x, y in zip(a, b))
+
+
+def _a(rgba, k):
+    """``rgba`` with its alpha times ``k`` (a fade)."""
+    return (rgba[0], rgba[1], rgba[2], rgba[3] * k)
 
 
 class Item:
@@ -164,7 +171,7 @@ class Taskbar(Gtk.Window):
     TILT = -4                   # degrees: the drag ghost
     DOT = 16                    # px: a thread badge (wider for two digits)
     DOT_GAP = 5
-    DOT_COLORS = {"waiting": (0.96, 0.62, 0.04), "done": (0.13, 0.77, 0.37), "busy": (0.23, 0.51, 0.96)}
+    DOT_TOKENS = {"waiting": "warn", "done": "ok", "busy": "info"}     # theme tokens of the thread badges
     DOT_NAMES = {"waiting": "waiting for you", "done": "done", "busy": "working"}
 
     BAT_ICON = 18               # px: the mouse / keyboard outline of a battery
@@ -173,8 +180,12 @@ class Taskbar(Gtk.Window):
     BAT_BOLT = 10               # the charging bolt (plus 3 px after it)
     BAT_SIDE = 7                # the small L / R
     BAT_KEYS = ("mouse", "left", "right")
-    BAT_COLORS = {"normal": (1, 1, 1, 0.82), "low": (*DOT_COLORS["waiting"], 1.0), "charging": (*ACCENT_EDGE, 1.0),
-                  "off": (1, 1, 1, 0.30)}
+
+    @staticmethod
+    def _bat_color(st):
+        T = themes.current()
+        return {"normal": T.text(0.82), "low": (*T.warn, 1.0), "charging": (*T.accent_edge, 1.0),
+                "off": T.text(0.30)}[st]
 
     def __init__(self, controller, xwm, height=52, position="bottom", gap=8, sound=True, nag_after=1800, nag_every=300,
                  battery=False, toggl=False):
@@ -693,7 +704,7 @@ class Taskbar(Gtk.Window):
             x = bx + self.PAD_X
             for key in self.BAT_KEYS:
                 st = battery.state(self.batteries.get(key))
-                rgba = (0, 0, 0, 0.55) if shadow else self.BAT_COLORS[st]
+                rgba = themes.current().shade(0.55) if shadow else self._bat_color(st)
                 cr.set_source_rgba(rgba[0], rgba[1], rgba[2], rgba[3] * fade)
                 dy = 1 if shadow else 0
                 cr.new_path()
@@ -729,8 +740,6 @@ class Taskbar(Gtk.Window):
     TG_GAP = 8
     TG_DESC_MAX = 220           # px of the description in the bar (the rest is in the card and the tooltip)
     TG_PROJ_MAX = 130
-    TG_RED = (0.97, 0.44, 0.44)
-    TG_ORANGE = DOT_COLORS["waiting"]
 
     def set_toggl(self, state):
         """Show a new toggl.State. The row only re-measures when the text changes (not every second)."""
@@ -815,16 +824,17 @@ class Taskbar(Gtk.Window):
         """The timer, plain like the clock: a ring with today's total, then what runs and for how long. A lit box while
         its card is open, while it shakes, and red when the timer was probably forgotten."""
         main, dim, clock, look = self._toggl_texts()
+        T = themes.current()
         lit = 1.0 if self.toggl_open else item.nag
         if look == "forgot" or lit > 0.01:
             DropOverlay._round(cr, bx, by, bw, bh, self.RADIUS)
             if look == "forgot":
-                cr.set_source_rgba(0.86, 0.15, 0.15, 0.42 * fade)
+                cr.set_source_rgba(*T.paint("danger_fill"), T.fill(0.42) * fade)
             else:
-                cr.set_source_rgba(*ACCENT, 0.62 * lit * fade)
+                cr.set_source_rgba(*T.accent, T.fill(0.62) * lit * fade)
             cr.fill()
             DropOverlay._round(cr, bx + 0.5, by + 0.5, bw - 1, bh - 1, self.RADIUS - 0.5)
-            edge = self.TG_RED if look == "forgot" else ACCENT_EDGE
+            edge = T.paint("danger") if look == "forgot" else T.accent_edge
             cr.set_source_rgba(*edge, (0.9 if look == "forgot" else 0.95 * lit) * fade)
             cr.set_line_width(1)
             cr.stroke()
@@ -838,16 +848,17 @@ class Taskbar(Gtk.Window):
         x += self.TG_RING + self.TG_GAP
         quiet = look in ("idle", "offline", "loading") and lit < 0.5
         alpha = light * (0.75 if quiet else 1.0) * (0.6 if look in ("offline", "loading") else 1.0)
-        for text, cap, rgba, bold in ((main, self.TG_DESC_MAX, (1, 1, 1, alpha), False),
-                                      (("· " + dim) if dim else "", self.TG_PROJ_MAX, (1, 1, 1, 0.62 * light), False),
-                                      (clock, None, ((1, 0.82, 0.82) if look == "forgot" else (1, 1, 1)) + (light,), True)):
+        fg = T.on if lit >= 0.5 and look != "forgot" else T.text          # on the lit (accent) box: the accent's text
+        for text, cap, rgba, bold in ((main, self.TG_DESC_MAX, fg(alpha), False),
+                                      (("· " + dim) if dim else "", self.TG_PROJ_MAX, _a(fg(0.62), light), False),
+                                      (clock, None, (*T.forgot_text, light) if look == "forgot" else fg(light), True)):
             if not text:
                 continue
             layout = self._tg_layout(text, cap, bold)
             lw, lh = layout.get_pixel_size()
             if cap is None:
                 lw = self._tg_clock_w(clock)
-            cr.set_source_rgba(0, 0, 0, 0.55 * fade)
+            cr.set_source_rgba(*T.shade(0.55 * fade))
             cr.move_to(x, cy - lh / 2 + 1)
             PangoCairo.show_layout(cr, layout)
             cr.set_source_rgba(*rgba)
@@ -862,21 +873,22 @@ class Taskbar(Gtk.Window):
         r = self.TG_RING / 2 - 1.5
         frac = min(1.0, self._toggl_today() / (self.toggl_target_h * 3600)) if self.toggl_target_h else 0.0
         warn = self.toggl is not None and bool(self.toggl.error)
+        T = themes.current()
         for shadow in (True, False):
             dy = 1 if shadow else 0
             cr.new_path()
             cr.arc(cx, cy + dy, r, 0, 2 * math.pi)
             cr.set_line_width(2.2)
-            cr.set_source_rgba(*((0, 0, 0, 0.45 * fade) if shadow else (1, 1, 1, 0.30 * fade)))
+            cr.set_source_rgba(*(T.shade(0.45 * fade) if shadow else _a(T.text(0.30), fade)))
             cr.stroke()
             if frac > 0 and not shadow:
                 cr.new_path()
                 cr.arc(cx, cy, r, -math.pi / 2, -math.pi / 2 + 2 * math.pi * frac)
-                cr.set_source_rgba(*(self.TG_ORANGE if warn else ACCENT_EDGE), 0.95 * fade)
+                cr.set_source_rgba(*(T.warn if warn else T.accent_edge), 0.95 * fade)
                 cr.stroke()
-            col = (0, 0, 0, 0.45 * fade) if shadow else (
-                (*self.TG_RED, fade) if look == "forgot" else (*self.TG_ORANGE, fade) if warn
-                else (*ACCENT_EDGE, fade) if look == "run" else (1, 1, 1, 0.85 * fade))
+            col = T.shade(0.45 * fade) if shadow else (
+                (*T.paint("danger"), fade) if look == "forgot" else (*T.warn, fade) if warn
+                else (*T.accent_edge, fade) if look == "run" else _a(T.text(0.85), fade))
             cr.set_source_rgba(*col)
             if look in ("run", "forgot"):
                 cr.arc(cx, cy + dy, 3.2, 0, 2 * math.pi)
@@ -953,17 +965,18 @@ class Taskbar(Gtk.Window):
         frac = max(0.0, min(1.0, self.volume / 100.0))
         live = 0.45 if self.muted else 1.0
         track_h, r = 4.0, 6.0 + 1.0 * max(item.hov, 1.0 if self._vol_drag else 0.0)
+        T = themes.current()
         DropOverlay._round(cr, left, cy - track_h / 2, width, track_h, track_h / 2)
-        cr.set_source_rgba(0, 0, 0, 0.30 * fade)                          # a hair of shadow under the track
+        cr.set_source_rgba(*T.shade(0.30 * fade))                         # a hair of shadow under the track
         cr.save()
         cr.translate(0, 1)
         cr.fill_preserve()
         cr.restore()
-        cr.set_source_rgba(1, 1, 1, 0.28 * fade)
+        cr.set_source_rgba(*_a(T.line(0.28), fade))
         cr.fill()
         if frac > 0:
             DropOverlay._round(cr, left, cy - track_h / 2, max(track_h, width * frac), track_h, track_h / 2)
-            col = ACCENT_EDGE if not self.muted else (0.75, 0.78, 0.8)
+            col = T.accent_edge if not self.muted else T.muted
             cr.set_source_rgba(*col, 0.95 * fade * (0.6 + 0.4 * live))
             cr.fill()
         kx = left + width * frac
@@ -971,7 +984,7 @@ class Taskbar(Gtk.Window):
         cr.set_source_rgba(0, 0, 0, 0.35 * fade)
         cr.fill()
         cr.arc(kx, cy, r, 0, 2 * math.pi)
-        cr.set_source_rgba(1, 1, 1, (0.55 + 0.4 * live) * fade)
+        cr.set_source_rgba(*T.knob, (0.55 + 0.4 * live) * fade)
         cr.fill()
 
     def _slider_track(self):
@@ -1068,7 +1081,7 @@ class Taskbar(Gtk.Window):
             x += self.DOT_GAP
             r, y = self.DOT / 2, by + (bh - self.DOT) / 2
             DropOverlay._round(cr, x, y, w, self.DOT, r)
-            red, green, blue = self.DOT_COLORS[st]
+            red, green, blue = getattr(themes.current(), self.DOT_TOKENS[st])
             cr.set_source_rgba(red, green, blue, 0.9 * fade)
             cr.fill_preserve()
             cr.set_line_width(1)
@@ -1125,10 +1138,11 @@ class Taskbar(Gtk.Window):
             lw, lh = layout.get_pixel_size()
             tx, ty = bx + self.PAD_X + self.ICON + self.ICON_GAP, by + (bh - lh) / 2
         if item.kind == "clock" or avail > 4:
-            cr.set_source_rgba(0, 0, 0, 0.55 * fade)                   # soft shadow keeps it legible on any wallpaper
+            T = themes.current()
+            cr.set_source_rgba(*T.shade(0.55 * fade))                  # soft shadow keeps it legible on any wallpaper
             cr.move_to(tx, ty + 1)
             PangoCairo.show_layout(cr, layout)
-            cr.set_source_rgba(1, 1, 1, light)
+            cr.set_source_rgba(*_a(T.text(0.82 + 0.18 * item.hov), fade))
             cr.move_to(tx, ty)
             PangoCairo.show_layout(cr, layout)
         cr.restore()
@@ -1142,6 +1156,7 @@ class Taskbar(Gtk.Window):
             self._paint_plain(cr, bx, by, bw, bh, item)
             return
         px, py = 0, self.y
+        T = themes.current()
         act, hov, dim = item.act, item.hov, item.dim * (1 - item.nag)        # a shaking box lights up fully
         full = alpha * (1 - 0.45 * dim)
         cr.save()
@@ -1152,23 +1167,23 @@ class Taskbar(Gtk.Window):
         if not backdrop:
             pass
         elif self.composited:
-            cr.set_source_rgba(0.04, 0.06, 0.08, 0.30)             # dark glass; kwin blurs what is behind it
+            cr.set_source_rgba(*T.bar)                             # glass; kwin blurs what is behind it
             cr.paint()
         elif self._band is not None:
             Gdk.cairo_set_source_pixbuf(cr, self._band, -px, self._band_y - py)
             cr.paint()
-            cr.set_source_rgba(0, 0, 0, 0.16)                      # slight darkening: frosted, not see-through
+            cr.set_source_rgba(*T.bar_dim)                         # slight darkening: frosted, not see-through
             cr.paint()
         else:
-            cr.set_source_rgba(0.10, 0.11, 0.14, 1)
+            cr.set_source_rgba(*T.bar_flat, 1)
             cr.paint()
-        tint = lerp((1, 1, 1, 0.11 + 0.09 * hov), (*ACCENT, 0.62), act)
+        tint = lerp(T.tint(0.11 + 0.09 * hov), (*T.accent, T.fill(0.62)), act)
         cr.set_source_rgba(*tint)
         cr.paint()
         cr.reset_clip()
-        edge = lerp((1, 1, 1, 0.32), (*ACCENT_EDGE, 0.95), act)
+        edge = lerp(T.line(0.32), (*T.accent_edge, 0.95), act)
         DropOverlay._round(cr, bx + 0.5, by + 0.5, bw - 1, bh - 1, self.RADIUS - 0.5)
-        cr.set_line_width(1)
+        cr.set_line_width(T.bw)
         cr.set_source_rgba(*edge)
         cr.stroke()
         # content, clipped to the box and fading in as the box grows
@@ -1183,10 +1198,10 @@ class Taskbar(Gtk.Window):
             lw, lh = layout.get_pixel_size()
             tx, ty = bx + (bw - lw) / 2, by + (bh - lh) / 2
             if item.kind == "clock":
-                cr.set_source_rgba(0, 0, 0, 0.45 * fade)
+                cr.set_source_rgba(*T.shade(0.45 * fade))
                 cr.move_to(tx, ty + 1)
                 PangoCairo.show_layout(cr, layout)
-            cr.set_source_rgba(1, 1, 1, 0.92 * fade)
+            cr.set_source_rgba(*_a(T.text(0.92), fade))
             cr.move_to(tx, ty)
             PangoCairo.show_layout(cr, layout)
         elif item.tabs:
@@ -1201,10 +1216,10 @@ class Taskbar(Gtk.Window):
                 layout = self._layout(item, min(avail, self._text_cap()))
                 lw, lh = layout.get_pixel_size()
                 tx, ty = bx + self.PAD_X + self.ICON + self.ICON_GAP, by + (bh - lh) / 2
-                cr.set_source_rgba(0, 0, 0, 0.45 * fade)           # soft text shadow keeps it legible on any wallpaper
+                cr.set_source_rgba(*T.shade(0.45 * fade))          # soft text shadow keeps it legible on any wallpaper
                 cr.move_to(tx, ty + 1)
                 PangoCairo.show_layout(cr, layout)
-                shade = lerp((1, 1, 1, 0.92), (1, 1, 1, 1.0), act)
+                shade = lerp(T.text(0.92), T.on(1.0), act)
                 cr.set_source_rgba(shade[0], shade[1], shade[2], shade[3] * fade)
                 cr.move_to(tx, ty)
                 PangoCairo.show_layout(cr, layout)
@@ -1219,10 +1234,11 @@ class Taskbar(Gtk.Window):
     def _paint_tabs(self, cr, bx, by, bh, item, fade):
         """A Chrome window as a button group: one button per tab, thin dividers, the tab on screen lit."""
         x = bx
+        T = themes.current()
         for i, w in enumerate(item.seg_w):
             is_more = item.tab_more and i == len(item.seg_w) - 1
             if i:
-                cr.set_source_rgba(1, 1, 1, 0.16 * fade)
+                cr.set_source_rgba(*_a(T.line(0.16), fade))
                 cr.rectangle(x - 0.5, by + 1, 1, bh - 2)
                 cr.fill()
             if is_more:
@@ -1232,11 +1248,11 @@ class Taskbar(Gtk.Window):
             else:
                 tab = item.tabs[i]
                 if tab["active"]:
-                    cr.set_source_rgba(1, 1, 1, 0.15 * fade)
+                    cr.set_source_rgba(*_a(T.tint(0.15), fade))
                     cr.rectangle(x, by, w, bh)
                     cr.fill()
                 elif self._hover_seg == (item.key, i):
-                    cr.set_source_rgba(1, 1, 1, 0.08 * fade)
+                    cr.set_source_rgba(*_a(T.tint(0.08), fade))
                     cr.rectangle(x, by, w, bh)
                     cr.fill()
                 if tab["icon"] is not None:
@@ -1246,10 +1262,10 @@ class Taskbar(Gtk.Window):
                 lw, lh = layout.get_pixel_size()
                 tx, ty, alpha = x + self.TAB_PAD + self.TAB_ICON + self.TAB_GAP, by + (bh - lh) / 2, \
                     (1.0 if tab["active"] else 0.72)
-            cr.set_source_rgba(0, 0, 0, 0.45 * fade)
+            cr.set_source_rgba(*T.shade(0.45 * fade))
             cr.move_to(tx, ty + 1)
             PangoCairo.show_layout(cr, layout)
-            cr.set_source_rgba(1, 1, 1, alpha * fade)
+            cr.set_source_rgba(*_a(lerp(T.text(alpha), T.on(alpha), item.act), fade))
             cr.move_to(tx, ty)
             PangoCairo.show_layout(cr, layout)
             x += w
@@ -1280,7 +1296,7 @@ class Taskbar(Gtk.Window):
             if self._band_raw is not None:                                # sharp copy of the desktop: looks see-through
                 Gdk.cairo_set_source_pixbuf(cr, self._band_raw, 0, self._band_y - self.y)
             else:
-                cr.set_source_rgb(0.10, 0.11, 0.14)
+                cr.set_source_rgb(*themes.current().bar_flat)
             cr.paint()
         gp = self.row.gap_position()
         if gp is not None and self._drag is not None:                      # soft outline of where the box will land
@@ -1290,9 +1306,9 @@ class Taskbar(Gtk.Window):
             bx, by, bw, bh = self._box_rect("gap", gx, gw)
             if bw > 2:
                 DropOverlay._round(cr, bx, by, bw, bh, self.RADIUS)
-                cr.set_source_rgba(*ACCENT, 0.16 * strength)
+                cr.set_source_rgba(*themes.current().accent, 0.16 * strength)
                 cr.fill_preserve()
-                cr.set_source_rgba(*ACCENT_EDGE, 0.55 * strength)
+                cr.set_source_rgba(*themes.current().accent_edge, 0.55 * strength)
                 cr.set_line_width(1.2)
                 cr.stroke()
         for key, (x, w) in self.row.positions().items():
@@ -1501,11 +1517,12 @@ class Taskbar(Gtk.Window):
             cr.set_source_rgba(1, 1, 1, 1)
             cr.paint()
             return
+        T = themes.current()
         if self.composited:                          # really translucent; kwin blurs what is behind it
-            cr.set_source_rgba(0.04, 0.06, 0.08, 0.30)
+            cr.set_source_rgba(*T.bar)
             cr.paint()
         else:
-            cr.set_source_rgba(0.10, 0.13, 0.15, 1)  # base where no copy of the background exists (over windows)
+            cr.set_source_rgba(*T.paint("ghost_flat"), 1)  # base where no copy of the background exists (over windows)
             cr.paint()
         if origin is not None and not self.composited:
             ox, oy = origin
@@ -1516,7 +1533,7 @@ class Taskbar(Gtk.Window):
             if snap is not None:
                 Gdk.cairo_set_source_pixbuf(cr, snap[0], snap[1] - ox, self.y - oy)
                 cr.paint()
-            cr.set_source_rgba(0, 0, 0, 0.16)
+            cr.set_source_rgba(*T.bar_dim)
             cr.paint()
         cr.reset_clip()
         cr.save()

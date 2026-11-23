@@ -12,10 +12,12 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from . import audio, battery, chrometabs, dock, exitlog, ipc, safety, threads, toggl  # noqa: E402
+from . import menu as menus, theme as themes, togglcard  # noqa: E402
 from .edgefade import EdgeFade  # noqa: E402
 from .controller import LAUNCH_TIMEOUT, Controller  # noqa: E402
 from .menu import MenuItem, QuickMenu, launch, load_menu_items, window_menu_items  # noqa: E402
 from .taskbar import DropOverlay, Taskbar  # noqa: E402
+from .themewatch import ThemeWatcher  # noqa: E402
 from .togglcard import TogglCard  # noqa: E402
 from Xlib import X  # noqa: E402
 from .xwm import XWM  # noqa: E402
@@ -149,6 +151,19 @@ def main(argv=None):
     ctl = Controller(xwm, gap=args.gap, margin=args.margin, scroll_step=args.scroll_step, new_max_frac=args.new_width,
                       vmargin=args.vmargin, right_edge=right_edge, edge_pad=args.edge_padding)
     overlay = DropOverlay()
+
+    # theme and accent (issue #22): the catalogue goes to ~/.config/slopslide/ for the launcher and the sidebar; the
+    # choice there is followed live
+    try:
+        themes.install_catalogue()
+    except OSError as e:
+        print(f"sdesk: theme catalogue not copied ({e})", file=sys.stderr)
+    theme_watch = ThemeWatcher(lambda t: apply_theme(t))
+    try:
+        themes.set_current(theme_watch.start())
+    except (OSError, GLib.Error) as e:
+        print(f"sdesk: theme changes are not followed live ({e})", file=sys.stderr)
+        themes.set_current(theme_watch.load())
 
     def on_pick(item):
         ctl.reserve_timeout(LAUNCH_TIMEOUT)       # keep the slot open while the app starts
@@ -459,6 +474,7 @@ def main(argv=None):
             return False
         state["quitting"] = True
         control.stop()
+        theme_watch.stop()
         fade.shutdown()
         if tab_server is not None:
             tab_server.stop()
@@ -518,6 +534,18 @@ def main(argv=None):
         return False
 
     GLib.timeout_add(250, after_mapped)
+
+    def apply_theme(t):
+        """A new theme or accent: new CSS for the menus and the Toggl card, and a repaint. No restart."""
+        themes.set_current(t)
+        print(f"sdesk: theme {t.id}, accent {t.accent_id}" + (" (adjusted for contrast)" if t.adjusted else ""),
+              flush=True)
+        (togglcard.install_css if toggl_card is not None else menus.install_css)()
+        menu.apply_theme()
+        if toggl_card is not None:
+            toggl_card.apply_theme()
+        state["bar"].area.queue_draw()
+        overlay.queue_draw()
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, lambda: (state["bar"].refresh_glass(), fade.refresh()) and True)  # wallpaper changed
     print("sdesk running. Super+scroll scrolls; drag windows or taskbar buttons to reorder; "
           "right-click between windows (or buttons) to add one; Ctrl+C quits.")

@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "about": "SlopSlide theme catalogue (issue #22). sdesk copies it to ~/.config/slopslide/themes.json; the choice is in ~/.config/slopslide/theme.json. Colours: '#rrggbb' or [r, g, b] / [r, g, b, alpha] with r, g, b in 0-255 (decimals allowed) and alpha in 0-1. Each theme only lists what differs from the first theme. The decimal values of glass-dark, its 'cairo' block (painted colours only, never inherited) and the accents' 'exact' block are the Cairo colours from before #22, so 'Donker glas' with Teal stays pixel-identical.",
+  "default_theme": "glass-dark",
+  "default_accent": "teal",
+  "wall": [29, 95, 122],
+  "accents": [
+    {"id": "teal", "name": "Teal", "base": "#14b8a6", "edge": "#73edd9",
+     "exact": {"base": [20.4, 183.6, 165.75], "edge": [114.75, 237.15, 216.75]}},
+    {"id": "blue", "name": "Blauw", "base": "#3b82f6", "edge": "#93c5fd"},
+    {"id": "indigo", "name": "Indigo", "base": "#6366f1", "edge": "#a5b4fc"},
+    {"id": "violet", "name": "Violet", "base": "#a855f7", "edge": "#d8b4fe"},
+    {"id": "pink", "name": "Roze", "base": "#ec4899", "edge": "#f9a8d4"},
+    {"id": "red", "name": "Rood", "base": "#ef4444", "edge": "#fca5a5", "clash": "danger"},
+    {"id": "orange", "name": "Oranje", "base": "#f97316", "edge": "#fdba74", "clash": "warn"},
+    {"id": "amber", "name": "Amber", "base": "#f59e0b", "edge": "#fcd34d", "clash": "warn"},
+    {"id": "green", "name": "Groen", "base": "#22c55e", "edge": "#86efac"},
+    {"id": "slate", "name": "Leisteen", "base": "#64748b", "edge": "#cbd5e1"}
+  ],
+  "themes": [
+    {"id": "glass-dark", "name": "Donker glas", "note": "standaard, de huidige look", "accent": "teal",
+     "tokens": {
+       "mode": "dark",
+       "glass": [14, 19, 24, 0.74], "glass_flat": [24, 29, 34],
+       "bar": [10.2, 15.3, 20.4, 0.30], "bar_dim": [0, 0, 0, 0.16], "bar_flat": [25.5, 28.05, 35.7],
+       "text": [255, 255, 255], "text_boost": 0,
+       "shadow": [0, 0, 0], "shadow_k": 1,
+       "tint": [255, 255, 255], "tint_k": 1,
+       "line": [255, 255, 255], "line_boost": 0,
+       "fill_boost": 0, "bw": 1,
+       "warn": [244.8, 158.1, 10.2], "ok": [33.15, 196.35, 94.35], "info": [58.65, 130.05, 244.8],
+       "danger": "#f87171", "danger_fill": "#dc2626", "danger_deep": [127, 29, 29],
+       "cairo": {"danger": [247.35, 112.2, 112.2], "danger_fill": [219.3, 38.25, 38.25],
+                 "ghost_flat": [25.5, 33.15, 38.25]},
+       "danger_soft": "#fca5a5", "danger_ink": "#fecaca", "danger_pale": "#fee2e2",
+       "forgot_text": [255, 209.1, 209.1],
+       "muted": [191.25, 198.9, 204], "knob": [255, 255, 255],
+       "card_text": ["#f1f5f9", "#e2e8f0", "#94a3b8", "#64748b"]
+     }},
+    {"id": "glass-light", "name": "Licht glas", "note": "overdag, lichte wallpaper", "accent": "blue",
+     "tokens": {
+       "mode": "light",
+       "glass": [246, 248, 251, 0.84], "glass_flat": [240, 243, 247],
+       "bar": [246, 248, 251, 0.55], "bar_dim": [255, 255, 255, 0.45], "bar_flat": [232, 236, 242],
+       "text": [15, 23, 42], "text_boost": 0.25,
+       "shadow": [255, 255, 255], "shadow_k": 0.5,
+       "tint": [255, 255, 255], "tint_k": 4,
+       "line": [15, 23, 42], "line_boost": 0,
+       "fill_boost": 0.79,
+       "warn": "#b45309", "ok": "#15803d", "info": "#1e40af",
+       "danger": "#dc2626", "danger_fill": "#dc2626", "danger_deep": "#b91c1c",
+       "danger_soft": "#b91c1c", "danger_ink": "#7f1d1d", "danger_pale": "#ffffff",
+       "forgot_text": "#b91c1c",
+       "muted": [100, 116, 139], "knob": [255, 255, 255],
+       "card_text": ["#0f172a", "#1e293b", "#475569", "#64748b"]
+     }},
+    {"id": "contrast", "name": "Hoog contrast", "note": "geen glas, dikke randen", "accent": "teal",
+     "tokens": {
+       "mode": "contrast",
+       "glass": [0, 0, 0, 0.97], "glass_flat": [0, 0, 0],
+       "bar": [0, 0, 0, 0.92], "bar_dim": [0, 0, 0, 0.85], "bar_flat": [0, 0, 0],
+       "text_boost": 0.6, "shadow_k": 0, "tint_k": 1.2, "line_boost": 0.7,
+       "fill_boost": 1, "bw": 2,
+       "warn": "#fbbf24", "ok": "#4ade80", "info": "#60a5fa",
+       "danger": "#ff7b7b",
+       "card_text": ["#ffffff", "#ffffff", "#d4d4d8", "#a1a1aa"]
+     }},
+    {"id": "amber", "name": "Amber avond", "note": "warm, minder blauw licht", "accent": "pink",
+     "tokens": {
+       "mode": "dark",
+       "glass": [32, 21, 12, 0.80], "glass_flat": [40, 28, 18],
+       "bar": [40, 26, 14, 0.36], "bar_dim": [20, 10, 0, 0.20], "bar_flat": [44, 30, 18],
+       "text": [255, 244, 228], "tint": [255, 210, 160], "line": [255, 210, 160], "line_boost": 0.05,
+       "warn": "#fb923c", "ok": "#a3e635", "info": "#60a5fa",
+       "danger": "#fb7185",
+       "muted": [190, 170, 150],
+       "card_text": ["#fff4e4", "#fde8cc", "#c9a98a", "#94785e"]
+     }},
+    {"id": "midnight", "name": "Middernacht", "note": "diep blauw glas", "accent": "indigo",
+     "tokens": {
+       "mode": "dark",
+       "glass": [9, 14, 38, 0.80], "glass_flat": [14, 20, 48],
+       "bar": [9, 14, 38, 0.36], "bar_dim": [0, 4, 20, 0.20], "bar_flat": [14, 20, 48],
+       "text": [232, 238, 255], "tint": [150, 175, 255], "line": [150, 175, 255], "line_boost": 0.05,
+       "warn": "#fbbf24", "ok": "#4ade80", "info": "#38bdf8",
+       "danger": "#fb7185",
+       "muted": [150, 160, 190],
+       "card_text": ["#e8eeff", "#dbe3ff", "#9aa8d6", "#6b78a6"]
+     }}
+  ]
+}

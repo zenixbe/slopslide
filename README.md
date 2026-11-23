@@ -33,6 +33,7 @@ the taskbar to bring any window to the middle.
 | **Resize by the gap** | Drag the gap between two windows to resize the window on its left. |
 | **Forgotten-window shake** | A window minimised for 30 minutes shakes its box now and then. |
 | **Clock, volume, sound output** | Time, a volume slider and a one-click output switch, left of the boxes. |
+| **Themes and accent colour** | Five themes and ten accent colours (or your own), chosen in the Super launcher. [Jump to it](#themes-and-accent-colour) |
 | **Sidebar friendly** | Windows fold away under a gap beside a floating sidebar on the right. |
 | **Safe by design** | Nothing survives a reboot. A guardian puts every window back after a crash. |
 
@@ -167,7 +168,22 @@ lands in it. Right-click a taskbar box for **Close** or **Force Quit**. Middle-c
 - **Sidebar friendly:** with a floating sidebar on the right, the strip uses the area left of it. Windows on the right
   fold away under a gap in front of the sidebar.
 
-## Install
+## Themes and accent colour
+
+<img src="docs/media/themes.png" alt="The five themes: taskbar, add-window menu and Toggl card" width="100%">
+
+Five themes: **Donker glas** (the default), **Licht glas**, **Hoog contrast**, **Amber avond** and **Middernacht**, and
+ten accent colours or your own hex colour. Choose them in the **Thema** tab of the Super launcher (key-nav-app), or type
+`thema licht` or `accent roze` in its search field. SlopSlide repaints at once, without a restart.
+
+- The choice is in `~/.config/slopslide/theme.json`: `{"version": 1, "theme": "glass-dark", "accent": "teal"}` (or
+  `"accent": "#e11d48"`). Without that file, or with a broken one, everything is Donker glas with Teal.
+- The themes and accents are data in [`sdesk/themes.json`](sdesk/themes.json). SlopSlide copies it to
+  `~/.config/slopslide/themes.json` at start, so other programs can read the same catalogue.
+- The accent is adjusted per theme (lightness only) until text on a selection has 4.5:1 contrast and rings and edges
+  have 3:1 (WCAG AA). An accent that looks like a status colour (orange "waiting", green "done", blue "working", red)
+  gets a ⚠ in the launcher.
+
 
 Needs Linux with X11, a window manager that follows the EWMH standard (tested with `kwin_x11` on Deepin 25), Python 3 (developed on 3.12),
 and these packages:
@@ -220,7 +236,7 @@ python3 -m venv --system-site-packages .venv
 ## Development
 
 ```bash
-.venv/bin/python -m pytest                 # 268 tests, no display needed
+.venv/bin/python -m pytest                 # 503 tests, no display needed
 lab/start_lab.sh                           # an isolated test desktop (Xvfb :99 + its own kwin_x11)
 .venv/bin/python lab/record_media.py setup # open demo windows and SlopSlide in the lab
 .venv/bin/python lab/record_media.py       # record the videos and screenshots in docs/media
