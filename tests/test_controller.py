@@ -74,6 +74,71 @@ def test_new_window_opens_next_to_active_one(setup):
     assert c.order == [2, 4, 3, 1]
 
 
+def focus_on(b, c, wid):
+    b.active_wid = wid
+    c.active_changed()
+
+
+def test_new_window_that_already_has_the_focus_opens_next_to_the_last_active_one(setup):
+    b, c, _ = setup
+    focus_on(b, c, 3)
+    b.frames[4] = Rect(0, 0, 500, 500)
+    focus_on(b, c, 4)                                  # kwin focuses the new window before the strip knows it
+    c.refresh_windows()
+    assert c.order == [2, 3, 4, 1]
+
+
+def test_new_window_opened_from_the_launcher_opens_next_to_the_last_active_one(setup):
+    b, c, _ = setup
+    focus_on(b, c, 2)
+    focus_on(b, c, 77)                                 # the Super launcher / a menu: not a strip window
+    b.frames[4] = Rect(0, 0, 500, 500)
+    c.refresh_windows()
+    assert c.order == [2, 4, 3, 1]
+    assert c._last_active == 2
+
+
+def test_new_window_with_nothing_focused_opens_next_to_the_centred_one(setup):
+    b, c, _ = setup
+    c.center(3); settle(c)
+    b.active_wid = None
+    b.frames[4] = Rect(0, 0, 500, 500)
+    c.refresh_windows()
+    assert c.order == [2, 3, 4, 1]
+
+
+def test_new_window_goes_to_the_end_without_any_anchor(setup):
+    b, c, _ = setup
+    c._centered = None
+    b.active_wid = None
+    b.frames[4] = Rect(0, 0, 500, 500)
+    c.refresh_windows()
+    assert c.order == [2, 3, 1, 4]
+
+
+def test_a_closed_last_active_window_is_no_anchor(setup):
+    b, c, _ = setup
+    focus_on(b, c, 2)
+    b.active_wid = None
+    b.frames.pop(2)
+    c.refresh_windows()
+    assert c._last_active is None
+    c._centered = None
+    b.frames[4] = Rect(0, 0, 500, 500)
+    c.refresh_windows()
+    assert c.order == [3, 1, 4]
+
+
+def test_several_new_windows_open_one_after_the_other(setup):
+    b, c, _ = setup
+    focus_on(b, c, 2)
+    focus_on(b, c, 77)
+    b.frames[4] = Rect(0, 0, 500, 500)
+    b.frames[5] = Rect(0, 0, 500, 500)
+    c.refresh_windows()
+    assert c.order == [2, 4, 5, 3, 1]
+
+
 def test_closed_window_is_removed_and_layout_closes_gap(setup):
     b, c, _ = setup
     b.frames.pop(3)
@@ -315,7 +380,7 @@ def test_reserve_opens_a_slot_and_release_closes_it(setup):
 
 def test_new_window_lands_in_the_reserved_slot(setup):
     b, c, _ = setup
-    b.active_wid = 1                                   # focus elsewhere: slot must win over "after active"
+    focus_on(b, c, 1)                                  # focus elsewhere: slot must win over "after active"
     c.reserve(1); settle(c)
     b.frames[9] = Rect(0, 0, 640, 480)
     c.refresh_windows(); settle(c)
