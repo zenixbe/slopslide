@@ -13,6 +13,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, Gtk, Pango  # noqa: E402
 
 from . import exitlog, favicons  # noqa: E402
+from . import theme as themes  # noqa: E402
 from .shapes import rounded_rects  # noqa: E402
 
 CONFIG_PATH = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
@@ -143,40 +144,58 @@ def launch(item):
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-# Glass in the style of the taskbar (sdesk/taskbar.py): dark translucent card that kwin blurs behind, 6 px corners,
-# hairline edges, and teal ACCENT (20,184,166) / ACCENT_EDGE (115,237,217) for the selected row.
-CSS = b"""
-window.sdesk-menu { background-color: transparent; }
-.sdesk-card {
-    background-color: rgba(14,19,24,0.74); border-radius: 6px; border: 1px solid rgba(255,255,255,0.20);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35); padding: 6px;
-}
-.sdesk-card.flat { background-color: rgb(24,29,34); border-radius: 0; box-shadow: none; }
-.sdesk-header { padding: 8px 10px 6px 10px; }
-.sdesk-header-title { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.62); }
-list.sdesk-items { background-color: transparent; }
-list.sdesk-items row {
+# Glass in the style of the taskbar (sdesk/taskbar.py): a translucent card that kwin blurs behind, 6 px corners,
+# hairline edges, and the accent for the selected row. The colours come from the theme (sdesk/theme.py); with
+# "Donker glas" and Teal this is exactly the CSS from before #22 (tests/golden/menu_css_glass_dark.css).
+def css(t=None):
+    t = t or themes.current()
+    R, H = themes.css_rgba, themes.css_hex
+    bw = t.bw
+    return f"""
+window.sdesk-menu {{ background-color: transparent; }}
+.sdesk-card {{
+    background-color: {R(t.glass)}; border-radius: 6px; border: {bw}px solid {R(t.line(0.20))};
+    box-shadow: 0 10px 30px rgba(0,0,0,{0.18 if t.light else 0.35:.2f}); padding: 6px;
+}}
+.sdesk-card.flat {{ background-color: {themes.css_rgb(t.glass_flat)}; border-radius: 0; box-shadow: none; }}
+.sdesk-header {{ padding: 8px 10px 6px 10px; }}
+.sdesk-header-title {{ font-size: 11px; font-weight: 700; letter-spacing: 1px; color: {R(t.text(0.62))}; }}
+list.sdesk-items {{ background-color: transparent; }}
+list.sdesk-items row {{
     background-color: transparent; border-radius: 6px; padding: 8px 12px; margin: 1px 0;
-    border: 1px solid transparent;
-}
-list.sdesk-items row:hover { background-color: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); }
-list.sdesk-items row:selected { background-color: rgba(20,184,166,0.62); border-color: rgba(115,237,217,0.95); }
-.sdesk-item-title {
-    font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.92); text-shadow: 0 1px 0 rgba(0,0,0,0.45);
-}
-list.sdesk-items row:selected .sdesk-item-title { color: #ffffff; }
-.sdesk-item-desc { font-size: 11px; color: rgba(255,255,255,0.62); margin-top: 1px; }
-list.sdesk-items row:selected .sdesk-item-desc { color: rgba(255,255,255,0.85); }
-.sdesk-badge {
-    font-family: monospace; font-size: 11px; font-weight: bold; color: rgba(255,255,255,0.62);
-    background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16);
+    border: {bw}px solid transparent;
+}}
+list.sdesk-items row:hover {{ background-color: {R(t.tint(0.08))}; border-color: {R(t.line(0.16))}; }}
+list.sdesk-items row:selected {{ background-color: {R(t.accent, t.fill(0.62))}; border-color: {R(t.accent_edge, 0.95)}; }}
+.sdesk-item-title {{
+    font-size: 14px; font-weight: 600; color: {R(t.text(0.92))}; text-shadow: 0 1px 0 {R(t.shade(0.45))};
+}}
+list.sdesk-items row:selected .sdesk-item-title {{ color: {H(t.on_accent)};{"" if t.on_accent[0] > 0.5 else " text-shadow: none;"} }}
+.sdesk-item-desc {{ font-size: 11px; color: {R(t.text(0.62))}; margin-top: 1px; }}
+list.sdesk-items row:selected .sdesk-item-desc {{ color: {R(t.on(0.85))}; }}
+.sdesk-badge {{
+    font-family: monospace; font-size: 11px; font-weight: bold; color: {R(t.text(0.62))};
+    background-color: {R(t.tint(0.08))}; border: {bw}px solid {R(t.line(0.16))};
     border-radius: 4px; padding: 1px 6px; margin-left: 8px;
-}
-list.sdesk-items row:selected .sdesk-badge {
-    background-color: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.35); color: #ffffff;
-}
-.sdesk-footer { padding: 9px 8px 3px 8px; }
-"""
+}}
+list.sdesk-items row:selected .sdesk-badge {{
+    background-color: {R(t.on(0.18))}; border-color: {R(t.on(0.35))}; color: {H(t.on_accent)};
+}}
+.sdesk-footer {{ padding: 9px 8px 3px 8px; }}
+""".encode()
+
+
+_provider = None
+
+
+def install_css(t=None):
+    """Load the menu CSS for theme ``t`` into one screen-wide provider (again on a theme switch: live, no restart)."""
+    global _provider
+    if _provider is None:
+        _provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), _provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    _provider.load_from_data(css(t))
 
 
 class _Row(Gtk.ListBoxRow):
@@ -212,12 +231,19 @@ class _Row(Gtk.ListBoxRow):
         self.add(hbox)
 
 
+def _span(text, alpha, bold=False):
+    t = themes.current()
+    rgba = t.text(alpha)
+    weight = ' weight="bold"' if bold else ""
+    return f'<span size="small" foreground="{themes.css_hex(rgba)}" alpha="{round(rgba[3] * 100)}%"{weight}>{text}</span>'
+
+
 def _key(text):
-    return f'<span size="small" foreground="#ffffff" alpha="62%" weight="bold">{text}</span>'
+    return _span(text, 0.62, bold=True)
 
 
 def _word(text):
-    return f'<span size="small" foreground="#ffffff" alpha="42%">{text}</span>'
+    return _span(text, 0.42)
 
 
 class QuickMenu(Gtk.Window):
@@ -245,10 +271,7 @@ class QuickMenu(Gtk.Window):
         if composited:
             self.set_visual(screen.get_rgba_visual())
 
-        prov = Gtk.CssProvider()
-        prov.load_from_data(CSS)
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        install_css()
 
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         card.get_style_context().add_class("sdesk-card")
@@ -276,10 +299,9 @@ class QuickMenu(Gtk.Window):
 
         footer = Gtk.Box()
         footer.get_style_context().add_class("sdesk-footer")
-        hint = Gtk.Label(xalign=0)
-        hint.set_markup(
-            f'{_key("↑↓")} {_word("Navigate")}    {_key("⏎")} {_word("Open")}    {_key("Esc")} {_word("Close")}')
-        footer.pack_start(hint, True, True, 0)
+        self.hint = Gtk.Label(xalign=0)
+        self.apply_theme()
+        footer.pack_start(self.hint, True, True, 0)
         card.pack_start(footer, False, False, 0)
         self.add(card)
 
@@ -287,6 +309,11 @@ class QuickMenu(Gtk.Window):
         self.connect("focus-out-event", lambda *_: self.cancel() or False)
         self.connect("delete-event", lambda *_: self.cancel() or True)
         self.realize()
+
+    def apply_theme(self):
+        """Repaint with the current theme: the CSS is shared; the footer keys are markup and set again."""
+        self.hint.set_markup(
+            f'{_key("↑↓")} {_word("Navigate")}    {_key("⏎")} {_word("Open")}    {_key("Esc")} {_word("Close")}')
 
     def _on_card_alloc(self, _card, a):
         sig = (a.x, a.y, a.width, a.height)

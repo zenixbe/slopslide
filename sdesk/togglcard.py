@@ -19,45 +19,67 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
 from . import menu, toggl  # noqa: E402
+from . import theme as themes  # noqa: E402
 
 PATCH_TIP = "needs Second Brain update (PATCH /api/ws/toggl/current)"
 MAX_PROJECTS = 7
 
-CSS = b"""
-.sdesk-toggl-search, .sdesk-toggl-desc {
-    background-color: rgba(255,255,255,0.06); color: #f1f5f9; border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.14); padding: 6px 10px; box-shadow: none; caret-color: #73edd9;
-}
-.sdesk-toggl-search:focus, .sdesk-toggl-desc:focus { border-color: rgba(115,237,217,0.85); }
-.sdesk-toggl-desc:disabled, .sdesk-toggl-desc.readonly, .sdesk-toggl-desc.readonly:focus {
-    color: #94a3b8; background-color: rgba(255,255,255,0.03); border-style: dashed; border-color: rgba(255,255,255,0.18);
-}
-.sdesk-toggl-section { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: #94a3b8; padding: 8px 12px 2px 12px; }
-.sdesk-toggl-chip {
-    font-size: 12px; font-weight: 600; color: #e2e8f0; background-color: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; padding: 3px 8px;
-}
-.sdesk-toggl-chip.empty { color: #64748b; font-weight: 400; }
-.sdesk-toggl-big { font-size: 22px; font-weight: 700; color: #f1f5f9; font-feature-settings: "tnum"; }
-.sdesk-toggl-big.forgot { color: #f87171; }
-.sdesk-toggl-dim { font-size: 11px; color: #94a3b8; }
-.sdesk-toggl-error { font-size: 11px; color: #fca5a5; padding: 4px 12px 0 12px; }
-.sdesk-toggl-warn {
-    font-size: 12px; font-weight: 600; color: #fecaca; background-color: rgba(220,38,38,0.22);
-    border: 1px solid rgba(248,113,113,0.5); border-radius: 8px; padding: 6px 10px; margin: 2px 0 6px 0;
-}
-button.sdesk-toggl-btn {
-    background-image: none; background-color: rgba(255,255,255,0.08); color: #e2e8f0; text-shadow: none;
-    border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; padding: 4px 12px; box-shadow: none;
-}
-button.sdesk-toggl-btn:hover { background-color: rgba(255,255,255,0.14); }
-button.sdesk-toggl-btn.go { background-color: rgba(20,184,166,0.85); border-color: rgba(115,237,217,0.9); color: #fff; }
-button.sdesk-toggl-btn.go:hover { background-color: rgba(20,184,166,1); }
-button.sdesk-toggl-btn.stop { background-color: rgba(127,29,29,0.75); border-color: rgba(248,113,113,0.6); color: #fee2e2; }
-button.sdesk-toggl-btn:disabled { opacity: 0.45; }
-list.sdesk-items row.sdesk-toggl-row { padding: 5px 12px; margin: 1px 0; }
-list.sdesk-items row.sdesk-toggl-row .sdesk-item-title { font-size: 13px; }
-"""
+def css(t=None):
+    """The card's own CSS (on top of the menu's) for theme ``t``. With "Donker glas" and Teal this is exactly the CSS
+    from before #22 (tests/golden/toggl_css_glass_dark.css)."""
+    t = t or themes.current()
+    R, H = themes.css_rgba, themes.css_hex
+    t1, t2, t3, t4 = (H(c) for c in t.card_text)
+    bw = t.bw
+    return f"""
+.sdesk-toggl-search, .sdesk-toggl-desc {{
+    background-color: {R(t.tint(0.06))}; color: {t1}; border-radius: 8px;
+    border: {bw}px solid {R(t.line(0.14))}; padding: 6px 10px; box-shadow: none; caret-color: {H(t.accent_edge)};
+}}
+.sdesk-toggl-search:focus, .sdesk-toggl-desc:focus {{ border-color: {R(t.accent_edge, 0.85)}; }}
+.sdesk-toggl-desc:disabled, .sdesk-toggl-desc.readonly, .sdesk-toggl-desc.readonly:focus {{
+    color: {t3}; background-color: {R(t.tint(0.03))}; border-style: dashed; border-color: {R(t.line(0.18))};
+}}
+.sdesk-toggl-section {{ font-size: 10px; font-weight: 700; letter-spacing: 1px; color: {t3}; padding: 8px 12px 2px 12px; }}
+.sdesk-toggl-chip {{
+    font-size: 12px; font-weight: 600; color: {t2}; background-color: {R(t.tint(0.08))};
+    border: {bw}px solid {R(t.line(0.14))}; border-radius: 6px; padding: 3px 8px;
+}}
+.sdesk-toggl-chip.empty {{ color: {t4}; font-weight: 400; }}
+.sdesk-toggl-big {{ font-size: 22px; font-weight: 700; color: {t1}; font-feature-settings: "tnum"; }}
+.sdesk-toggl-big.forgot {{ color: {H(t.danger)}; }}
+.sdesk-toggl-dim {{ font-size: 11px; color: {t3}; }}
+.sdesk-toggl-error {{ font-size: 11px; color: {H(t.danger_soft)}; padding: 4px 12px 0 12px; }}
+.sdesk-toggl-warn {{
+    font-size: 12px; font-weight: 600; color: {H(t.danger_ink)}; background-color: {R(t.danger_fill, t.fill(0.22))};
+    border: {bw}px solid {R(t.danger, 0.5)}; border-radius: 8px; padding: 6px 10px; margin: 2px 0 6px 0;
+}}
+button.sdesk-toggl-btn {{
+    background-image: none; background-color: {R(t.tint(0.08))}; color: {t2}; text-shadow: none;
+    border: {bw}px solid {R(t.line(0.14))}; border-radius: 8px; padding: 4px 12px; box-shadow: none;
+}}
+button.sdesk-toggl-btn:hover {{ background-color: {R(t.tint(0.14))}; }}
+button.sdesk-toggl-btn.go {{ background-color: {R(t.accent, t.fill(0.85))}; border-color: {R(t.accent_edge, 0.9)}; color: {H(t.on_accent) if t.on_accent[0] < 0.5 else "#fff"}; }}
+button.sdesk-toggl-btn.go:hover {{ background-color: {R(t.accent, 1)}; }}
+button.sdesk-toggl-btn.stop {{ background-color: {R(t.danger_deep, 0.75)}; border-color: {R(t.danger, 0.6)}; color: {H(t.danger_pale)}; }}
+button.sdesk-toggl-btn:disabled {{ opacity: 0.45; }}
+list.sdesk-items row.sdesk-toggl-row {{ padding: 5px 12px; margin: 1px 0; }}
+list.sdesk-items row.sdesk-toggl-row .sdesk-item-title {{ font-size: 13px; }}
+""".encode()
+
+
+_provider = None
+
+
+def install_css(t=None):
+    """The menu CSS plus the card's own, in screen-wide providers (loaded again on a theme switch)."""
+    global _provider
+    menu.install_css(t)
+    if _provider is None:
+        _provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), _provider,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    _provider.load_from_data(css(t))
 
 
 def when_text(epoch, now=None):
@@ -136,10 +158,7 @@ class TogglCard(Gtk.Window):
         composited = bool(screen.get_rgba_visual() and screen.is_composited())
         if composited:
             self.set_visual(screen.get_rgba_visual())
-        for css in (menu.CSS, CSS):
-            prov = Gtk.CssProvider()
-            prov.load_from_data(css)
-            Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        install_css()
 
         self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.card.get_style_context().add_class("sdesk-card")
@@ -310,6 +329,11 @@ class TogglCard(Gtk.Window):
             self._fill_run(reset=not self._desc_dirty and old.running != state.running)
         self._refresh_common()
 
+    def apply_theme(self):
+        """The CSS is shared (install_css); only the footer hint is markup with its own colour."""
+        if self.state is not None:
+            self._refresh_common()
+
     def _refresh_common(self):
         s = self.state
         self.error.set_text(s.action_error or s.error or "")
@@ -319,7 +343,8 @@ class TogglCard(Gtk.Window):
             self.error.set_visible(True)
         keys = ("↑↓ choose · ⏎ start · Tab description" if self.mode == "pick"
                 else "⏎ save · Ctrl+⏎ stop") + " · Esc close"
-        self.hint.set_markup(f'<span foreground="#64748b">{GLib.markup_escape_text(keys)}</span>')
+        self.hint.set_markup(f'<span foreground="{themes.css_hex(themes.current().card_text[3])}">'
+                             f'{GLib.markup_escape_text(keys)}</span>')
         self._show_today()
 
     def _show_today(self):

@@ -1,0 +1,31 @@
+
+window.sdesk-menu { background-color: transparent; }
+.sdesk-card {
+    background-color: rgba(14,19,24,0.74); border-radius: 6px; border: 1px solid rgba(255,255,255,0.20);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35); padding: 6px;
+}
+.sdesk-card.flat { background-color: rgb(24,29,34); border-radius: 0; box-shadow: none; }
+.sdesk-header { padding: 8px 10px 6px 10px; }
+.sdesk-header-title { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.62); }
+list.sdesk-items { background-color: transparent; }
+list.sdesk-items row {
+    background-color: transparent; border-radius: 6px; padding: 8px 12px; margin: 1px 0;
+    border: 1px solid transparent;
+}
+list.sdesk-items row:hover { background-color: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); }
+list.sdesk-items row:selected { background-color: rgba(20,184,166,0.62); border-color: rgba(115,237,217,0.95); }
+.sdesk-item-title {
+    font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.92); text-shadow: 0 1px 0 rgba(0,0,0,0.45);
+}
+list.sdesk-items row:selected .sdesk-item-title { color: #ffffff; }
+.sdesk-item-desc { font-size: 11px; color: rgba(255,255,255,0.62); margin-top: 1px; }
+list.sdesk-items row:selected .sdesk-item-desc { color: rgba(255,255,255,0.85); }
+.sdesk-badge {
+    font-family: monospace; font-size: 11px; font-weight: bold; color: rgba(255,255,255,0.62);
+    background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 4px; padding: 1px 6px; margin-left: 8px;
+}
+list.sdesk-items row:selected .sdesk-badge {
+    background-color: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.35); color: #ffffff;
+}
+.sdesk-footer { padding: 9px 8px 3px 8px; }
