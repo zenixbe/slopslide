@@ -339,11 +339,12 @@ autostart entry.
 
     .venv/bin/python -m pytest              # layout + controller logic, no X needed
     .venv/bin/python lab/record_media.py    # re-record the videos and screenshots of the README (needs the lab, see below)
-    lab/start_lab.sh                        # isolated Xvfb :99 + its own kwin_x11 + own D-Bus (real session untouched)
+    lab/start_lab.sh                        # isolated Xvfb (free display from :99) + own kwin_x11 + own D-Bus; one LAB per thread
     COMPOSE=X lab/start_lab.sh              # same, with kwin's own compositor (transparency; Xvfb has no real OpenGL)
-    DISPLAY=:99 .venv/bin/python lab/demo_window.py Files nautilus 3b6ea5 &    # spawn test windows
-    DISPLAY=:99 .venv/bin/python -m sdesk &
-    DISPLAY=:99 .venv/bin/python lab/shot.py out.png                            # screenshot
+    . /tmp/sdesk-lab/env                    # the lab's DISPLAY and XDG_RUNTIME_DIR (never share the real ones)
+    .venv/bin/python lab/demo_window.py Files nautilus 3b6ea5 &    # spawn test windows
+    .venv/bin/python -m sdesk &
+    .venv/bin/python lab/shot.py out.png                            # screenshot
     lab/stop_lab.sh
 
 The lab never sets `KWIN_COMPOSE`: Deepin saves that in a dconfig shared with the real session, which silently switched the real desktop to "performance" mode. It suspends the lab compositor over the lab's own D-Bus instead.
