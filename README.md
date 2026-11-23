@@ -123,6 +123,28 @@ Change it with `--nag-after` and `--nag-every`, or switch it off with `--nag-aft
 
 [MP4 of this clip](docs/media/minimised-window-shake.mp4)
 
+## A Toggl timer next to the clock
+
+<div align="center">
+<img src="docs/media/toggl-picker.png" alt="The Toggl card: search, start again, projects" width="48%">
+<img src="docs/media/toggl-edit.png" alt="The running timer in its card" width="48%">
+</div>
+
+Right of the clock sits the Toggl timer, through [Second Brain](https://github.com/zenixbe/secondbrain)'s Toggl API.
+Without a timer it says **Start timer**; a click (or **Super+T**) opens a card: search one of your projects, or pick a
+recent entry to start it again, type what you do and press Enter. While a timer runs the bar shows the description, the
+project and the running time. Click it to change the description, stop it, or go **back to the previous entry** in one
+click (Super+T twice does the same). Middle-click or **Super+Shift+T** stops it.
+
+- The ring around the play sign fills with today's total against a target (`--toggl-target 8`).
+- In work hours without a timer, "Start timer" shakes now and then (`--toggl-work-hours "mon-fri 09:00-18:00"`,
+  `--toggl-nag-every 10`).
+- After 16 h the item turns red: you probably forgot to stop it.
+- If Second Brain does not answer, the ring turns orange and the last known state stays; nothing crashes.
+
+`--toggl off` hides it and never calls the API; `--toggl-url` points it at another address. Details in
+[docs/DETAILS.md](docs/DETAILS.md#toggl-timer).
+
 ## Add a window where you want it
 
 <div align="center">
@@ -198,7 +220,7 @@ python3 -m venv --system-site-packages .venv
 ## Development
 
 ```bash
-.venv/bin/python -m pytest                 # 251 tests, no display needed
+.venv/bin/python -m pytest                 # 268 tests, no display needed
 lab/start_lab.sh                           # an isolated test desktop (Xvfb :99 + its own kwin_x11)
 .venv/bin/python lab/record_media.py setup # open demo windows and SlopSlide in the lab
 .venv/bin/python lab/record_media.py       # record the videos and screenshots in docs/media

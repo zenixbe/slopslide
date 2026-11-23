@@ -37,6 +37,8 @@ class XWM:
         self.on_workarea = lambda: None
         self.on_title = lambda wid: None
         self.on_scroll = lambda direction: None
+        self.on_key = lambda name: None             # a key grabbed with grab_key was pressed
+        self._keys = {}                             # (keycode, modifiers without locks) -> name
         self.on_zone_menu = lambda idx, x, y: None
         self.on_zone_resize = lambda idx, x, y: None      # left button pressed in a gap: the user grabbed it to resize
         self.root.change_attributes(event_mask=X.PropertyChangeMask)
@@ -376,6 +378,28 @@ class XWM:
                     ok = False
         return ok
 
+    def grab_key(self, name, keysym_name, mods):
+        """Grab a key combination on the root window (e.g. "t" with SUPER): pressing it calls ``on_key(name)``.
+        Returns False if another program holds it already (X answers BadAccess)."""
+        from Xlib import XK
+        code = self.d.keysym_to_keycode(XK.string_to_keysym(keysym_name))
+        if not code:
+            return False
+        ok = True
+        for lock in LOCK_MASKS:
+            err = error.CatchError(error.BadAccess)
+            self.root.grab_key(code, mods | lock, True, X.GrabModeAsync, X.GrabModeAsync, onerror=err)
+            self.d.sync()
+            if err.get_error():
+                ok = False
+        if ok:
+            self._keys[(code, mods)] = name
+        else:
+            for lock in LOCK_MASKS:
+                self.root.ungrab_key(code, mods | lock)
+            self.d.sync()
+        return ok
+
     def blank(self, xid):
         """Make a window (all but 1px of it) invisible without unmapping it, so it keeps its strut."""
         self.win(xid).shape_rectangles(shape.SO.Set, shape.SK.Bounding, X.Unsorted, 0, 0, [(0, 0, 1, 1)])
@@ -470,6 +494,10 @@ class XWM:
                     titles.add(ev.window.id)
                 elif name in ("_NET_WM_STATE", "_NET_WM_DESKTOP", "_NET_WM_WINDOW_TYPE"):
                     clients = True
+            elif ev.type == X.KeyPress:
+                name = self._keys.get((ev.detail, ev.state & ~(X.LockMask | X.Mod2Mask) & 0xFF))
+                if name:
+                    self.on_key(name)
             elif ev.type == X.ButtonPress:
                 if ev.window.id in self._zone_idx:
                     if ev.detail == 3:

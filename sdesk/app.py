@@ -11,11 +11,13 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import audio, battery, chrometabs, dock, ipc, safety, threads  # noqa: E402
+from . import audio, battery, chrometabs, dock, ipc, safety, threads, toggl  # noqa: E402
 from .edgefade import EdgeFade  # noqa: E402
 from .controller import LAUNCH_TIMEOUT, Controller  # noqa: E402
 from .menu import MenuItem, QuickMenu, launch, load_menu_items, window_menu_items  # noqa: E402
 from .taskbar import DropOverlay, Taskbar  # noqa: E402
+from .togglcard import TogglCard  # noqa: E402
+from Xlib import X  # noqa: E402
 from .xwm import XWM  # noqa: E402
 
 
@@ -56,6 +58,19 @@ def parse_args(argv):
     p.add_argument("--threads", default="auto", choices=("auto", "off"),
                    help="badges on the Claude and T3 Code taskbar boxes for their threads that wait for you / are done / work; "
                         "'off' disables")
+    p.add_argument("--toggl", default="auto", choices=("auto", "off"),
+                   help="the Toggl timer next to the clock, through Second Brain's API (see --toggl-url); 'off' hides it "
+                        "and never calls the API")
+    p.add_argument("--toggl-url", default=toggl.DEFAULT_URL, metavar="URL",
+                   help=f"Second Brain's address (default {toggl.DEFAULT_URL}); point it at a stand-in to test")
+    p.add_argument("--toggl-work-hours", default="mon-fri 09:00-18:00", metavar="SPEC",
+                   help="in these hours 'Start timer' shakes when no timer runs: days and times, e.g. 'mon-fri 08:30-17:00'; "
+                        "'off' = never")
+    p.add_argument("--toggl-nag-every", type=int, default=10, metavar="MIN", help="minutes between two of those shakes")
+    p.add_argument("--toggl-target", type=float, default=8.0, metavar="HOURS",
+                   help="today's target: the ring around the timer fills towards it (0 = no ring)")
+    p.add_argument("--toggl-keys", default="on", choices=("on", "off"),
+                   help="Super+T opens the Toggl card (twice: back to the previous entry), Super+Shift+T stops the timer")
     p.add_argument("--bar-gap", type=int, default=8, help="float the bar this many px off the screen edge")
     p.add_argument("--disable-dock", action="store_true",
                    help="turn Deepin's own dock off while running (restored on exit). Also removes the tray/clock in it")
@@ -64,7 +79,12 @@ def parse_args(argv):
     p.add_argument("--restore", "--restore-dock", dest="restore", action="store_true",
                    help="panic button: stop sdesk, put every window back where it was and bring Deepin's dock back")
     p.add_argument("--guardian", type=int, metavar="PID", help=argparse.SUPPRESS)   # internal: watches sdesk's pid
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    try:
+        args.toggl_hours = toggl.WorkHours.parse(args.toggl_work_hours)
+    except ValueError as e:
+        p.error(f"--toggl-work-hours: {e}")
+    return args
 
 
 def run_guardian(pid):
@@ -248,6 +268,12 @@ def main(argv=None):
                 state["menu_armed"] = True        # the click that opened the menu has been released
             elif state["menu_armed"] and not menu.contains(px, py):
                 menu.cancel()
+        if toggl_card is not None and toggl_card.is_open():          # the same for the Toggl card
+            px, py, down = xwm.pointer()
+            if not down:
+                state["card_armed"] = True
+            elif state["card_armed"] and not toggl_card.contains(px, py):
+                toggl_card.cancel()
         state["polls"] += 1
         if state["polls"] % 4 == 0:
             ctl.reconcile()
@@ -284,7 +310,8 @@ def main(argv=None):
         """A new taskbar window. Its look depends on whether a compositor runs, and a window's visual cannot change
         afterwards, so switching Deepin's window effects on/off means building a new one (see rebuild_bar)."""
         b = Taskbar(ctl, xwm, height=args.bar_height, position=args.bar, gap=args.bar_gap, sound=sound_on,
-                    battery=args.battery != "off", nag_after=args.nag_after * 60, nag_every=max(1, args.nag_every) * 60)
+                    battery=args.battery != "off", toggl=toggl_service is not None, nag_after=args.nag_after * 60,
+                    nag_every=max(1, args.nag_every) * 60)
         b.set_center(ctl.area.x + ctl.area.w / 2)
         b.on_menu = lambda idx, x, y: open_menu(idx, x, y, above=True)
         b.on_window_menu = open_window_menu
@@ -295,6 +322,11 @@ def main(argv=None):
         b.on_sound_menu = open_sound_menu
         b.on_volume = lambda v: watcher.set_volume(v) if watcher else None
         b.on_mute = lambda: watcher.toggle_mute() if watcher else None
+        b.toggl_hours, b.toggl_target_h = args.toggl_hours, max(0.0, args.toggl_target)
+        b.toggl_nag_every = max(1, args.toggl_nag_every) * 60
+        b.toggl_hotkeys = state.get("toggl_keys", "")
+        b.on_toggl_click = lambda x, y: open_toggl(x, y)
+        b.on_toggl_stop = lambda: toggl_service.stop_timer() if toggl_service else None
         return b
 
     def finish_bar(b):
@@ -307,6 +339,8 @@ def main(argv=None):
             b.set_sound(current_sink(state["audio"]))
         if state.get("battery"):
             b.set_battery(state["battery"])
+        if state.get("toggl") is not None:
+            b.set_toggl(state["toggl"])
         GLib.timeout_add(2500, b.refresh_glass)      # without a compositor: copy the wallpaper once windows have settled
         return False
 
@@ -323,7 +357,53 @@ def main(argv=None):
               f"({'with' if state['bar'].composited else 'without'} compositor)", flush=True)
         return False
 
+    toggl_service = None
+    toggl_card = None
+    if args.toggl != "off":
+        def apply_toggl(st):
+            state["toggl"] = st
+            if state.get("bar") is not None:
+                state["bar"].set_toggl(st)
+            if toggl_card is not None:
+                toggl_card.update(st)
+            return False
+
+        toggl_service = toggl.Service(toggl.Client(args.toggl_url), lambda st: GLib.idle_add(apply_toggl, st))
+        toggl_card = TogglCard(on_start=toggl_service.start_timer, on_stop=toggl_service.stop_timer,
+                               on_save=toggl_service.save_description,
+                               on_close=lambda: state["bar"].set_toggl_open(False),
+                               target_h=max(0.0, args.toggl_target), hotkeys=args.toggl_keys == "on")
+
+    def open_toggl(x=None, y=None):
+        """Click on the timer, or Super+T (x None): open its card. Super+T while it is open: back to the previous entry
+        (extra 8); a click while it is open closes it."""
+        if toggl_card is None or ctl.drag or ctl.resizing is not None:
+            return
+        hotkey = x is None
+        if toggl_card.is_open():
+            if not hotkey or not toggl_card.back():
+                toggl_card.cancel()
+            return
+        if not hotkey and toggl_card.closed_recently():
+            return                                     # this click closed the card (outside it): do not reopen
+        if hotkey:
+            x, y = state["bar"].toggl_anchor()
+        menu.cancel()
+        state["card_armed"] = False                    # ignore the still-held button
+        state["bar"].set_toggl_open(True)
+        toggl_card.popup(x, y, state.get("toggl") or toggl.State())
+        toggl_service.refresh()
+
+    def toggl_key(name):
+        if name == "toggl-open":
+            open_toggl()
+        elif name == "toggl-stop" and toggl_service is not None and (state.get("toggl") or toggl.State()).running:
+            toggl_service.stop_timer()
+    xwm.on_key = guarded(toggl_key, None)
+
     state["bar"] = make_bar()
+    if toggl_service is not None:
+        toggl_service.start()
     if args.threads != "off":
         refresh_threads()
         GLib.timeout_add_seconds(3, refresh_threads)
@@ -374,6 +454,8 @@ def main(argv=None):
             watcher.stop()
         if state.get("battery_poller") is not None:
             state["battery_poller"].stop()
+        if toggl_service is not None:
+            toggl_service.stop()
         ending = safety.session_ending()           # logout/reboot: nothing may block, the session is going away anyway
         ctl.restore_all()
         xwm.d.sync()
@@ -407,6 +489,13 @@ def main(argv=None):
 
     def after_mapped():
         finish_bar(state["bar"])
+        if toggl_service is not None and args.toggl_keys == "on":
+            got = [label for name, key, mods, label in (("toggl-open", "t", X.Mod4Mask, "Super+T"),
+                                                        ("toggl-stop", "t", X.Mod4Mask | X.ShiftMask, "Super+Shift+T"))
+                   if xwm.grab_key(name, key, mods) or print(f"sdesk: {label} is taken by another program; "
+                                                             "the Toggl card still opens with a click", file=sys.stderr)]
+            state["toggl_keys"] = " · ".join(f"{k}: {'card' if k == 'Super+T' else 'stop'}" for k in got)
+            state["bar"].toggl_hotkeys = state["toggl_keys"]
         if not xwm.grab_super_scroll():
             print("sdesk: Super+scroll is already taken by another program; "
                   "the taskbar still works", file=sys.stderr)
