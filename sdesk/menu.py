@@ -1,4 +1,4 @@
-"""The "add a window here" menu: a dark card in the style of key-nav-app."""
+"""The "add a window here" menu: a glass card in the style of the taskbar."""
 import json
 import os
 import shutil
@@ -13,6 +13,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, Gtk, Pango  # noqa: E402
 
 from . import favicons  # noqa: E402
+from .shapes import rounded_rects  # noqa: E402
 
 CONFIG_PATH = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
                            "sdesk", "menu.json")
@@ -141,32 +142,39 @@ def launch(item):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+# Glass in the style of the taskbar (sdesk/taskbar.py): dark translucent card that kwin blurs behind, 6 px corners,
+# hairline edges, and teal ACCENT (20,184,166) / ACCENT_EDGE (115,237,217) for the selected row.
 CSS = b"""
 window.sdesk-menu { background-color: transparent; }
 .sdesk-card {
-    background-color: #1e1e24; border-radius: 14px; border: 1px solid rgba(255,255,255,0.12);
-    box-shadow: 0 16px 40px rgba(0,0,0,0.6); padding: 8px;
+    background-color: rgba(14,19,24,0.74); border-radius: 6px; border: 1px solid rgba(255,255,255,0.20);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35); padding: 6px;
 }
-.sdesk-card.flat { border-radius: 0; box-shadow: none; }
-.sdesk-header { padding: 6px 12px 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 6px; }
-.sdesk-header-title { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #94a3b8; }
+.sdesk-card.flat { background-color: rgb(24,29,34); border-radius: 0; box-shadow: none; }
+.sdesk-header { padding: 8px 10px 6px 10px; }
+.sdesk-header-title { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.62); }
 list.sdesk-items { background-color: transparent; }
-list.sdesk-items row { background-color: transparent; border-radius: 8px; padding: 8px 12px; margin: 2px 0; border: none; }
-list.sdesk-items row:hover { background-color: rgba(255,255,255,0.06); }
-list.sdesk-items row:selected { background-color: #2563eb; }
-.sdesk-item-title { font-size: 14px; font-weight: 600; color: #f1f5f9; }
+list.sdesk-items row {
+    background-color: transparent; border-radius: 6px; padding: 8px 12px; margin: 1px 0;
+    border: 1px solid transparent;
+}
+list.sdesk-items row:hover { background-color: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); }
+list.sdesk-items row:selected { background-color: rgba(20,184,166,0.62); border-color: rgba(115,237,217,0.95); }
+.sdesk-item-title {
+    font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.92); text-shadow: 0 1px 0 rgba(0,0,0,0.45);
+}
 list.sdesk-items row:selected .sdesk-item-title { color: #ffffff; }
-.sdesk-item-desc { font-size: 11px; color: #94a3b8; margin-top: 1px; }
-list.sdesk-items row:selected .sdesk-item-desc { color: #bfdbfe; }
+.sdesk-item-desc { font-size: 11px; color: rgba(255,255,255,0.62); margin-top: 1px; }
+list.sdesk-items row:selected .sdesk-item-desc { color: rgba(255,255,255,0.85); }
 .sdesk-badge {
-    font-family: monospace; font-size: 11px; font-weight: bold; color: #cbd5e1;
-    background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 6px; padding: 2px 7px; margin-left: 8px;
+    font-family: monospace; font-size: 11px; font-weight: bold; color: rgba(255,255,255,0.62);
+    background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 4px; padding: 1px 6px; margin-left: 8px;
 }
 list.sdesk-items row:selected .sdesk-badge {
-    background-color: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.4); color: #ffffff;
+    background-color: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.35); color: #ffffff;
 }
-.sdesk-footer { padding: 8px 12px 4px 12px; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 6px; }
+.sdesk-footer { padding: 9px 8px 3px 8px; }
 """
 
 
@@ -203,13 +211,23 @@ class _Row(Gtk.ListBoxRow):
         self.add(hbox)
 
 
+def _key(text):
+    return f'<span size="small" foreground="#ffffff" alpha="62%" weight="bold">{text}</span>'
+
+
+def _word(text):
+    return f'<span size="small" foreground="#ffffff" alpha="42%">{text}</span>'
+
+
 class QuickMenu(Gtk.Window):
     """Keyboard-driven popup: ↑↓ / j k / Ctrl+P N, Enter, 1-9, Esc; closes when focus is lost."""
 
     WIDTH = 360
 
-    def __init__(self, items, on_pick, on_cancel, header="ADD WINDOW HERE"):
+    def __init__(self, items, on_pick, on_cancel, header="ADD WINDOW HERE", set_blur=None):
+        """``set_blur(xid, rects)`` asks kwin to blur what is behind the card (the glass), like the taskbar does."""
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        self._set_blur, self._blur_sig = set_blur, None
         self.items, self.on_pick, self.on_cancel, self.header = items, on_pick, on_cancel, header
         self._default = (items, on_pick, on_cancel, header)
         self._open = False
@@ -236,6 +254,8 @@ class QuickMenu(Gtk.Window):
         if not composited:
             card.get_style_context().add_class("flat")
         card.set_size_request(self.WIDTH, -1)
+        if composited and set_blur:
+            card.connect("size-allocate", self._on_card_alloc)
 
         header = Gtk.Box()
         header.get_style_context().add_class("sdesk-header")
@@ -257,9 +277,7 @@ class QuickMenu(Gtk.Window):
         footer.get_style_context().add_class("sdesk-footer")
         hint = Gtk.Label(xalign=0)
         hint.set_markup(
-            '<span foreground="#94a3b8" weight="bold">↑↓</span> <span foreground="#64748b">Navigate</span>    '
-            '<span foreground="#94a3b8" weight="bold">⏎</span> <span foreground="#64748b">Open</span>    '
-            '<span foreground="#94a3b8" weight="bold">Esc</span> <span foreground="#64748b">Close</span>')
+            f'{_key("↑↓")} {_word("Navigate")}    {_key("⏎")} {_word("Open")}    {_key("Esc")} {_word("Close")}')
         footer.pack_start(hint, True, True, 0)
         card.pack_start(footer, False, False, 0)
         self.add(card)
@@ -268,6 +286,17 @@ class QuickMenu(Gtk.Window):
         self.connect("focus-out-event", lambda *_: self.cancel() or False)
         self.connect("delete-event", lambda *_: self.cancel() or True)
         self.realize()
+
+    def _on_card_alloc(self, _card, a):
+        sig = (a.x, a.y, a.width, a.height)
+        win = self.get_window()
+        if win is None or sig == self._blur_sig:
+            return
+        self._blur_sig = sig
+        try:
+            self._set_blur(win.get_xid(), rounded_rects(a.x, a.y, a.width, a.height, 6))
+        except Exception:                             # blur is decoration; never let it break the menu
+            pass
 
     # ----------------------------------------------------------------- show
     def _fill(self, items):
