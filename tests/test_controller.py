@@ -1003,3 +1003,103 @@ def test_refresh_zones_only_when_the_strip_is_at_rest(setup):
     shown.clear()
     c.refresh_zones()
     assert shown == []
+
+
+# ---------------------------------------------------------------- attached windows (issue #24)
+class AttachBackend(FakeBackend):
+    """Window 9 is a 360 px wide UTILITY panel, transient for window 3; window 3 draws a client-side shadow."""
+    def __init__(self, frames, **kw):
+        super().__init__(frames, **kw)
+        self.att = {9: 3}
+        self.ext = {3: (16, 16, 10, 32)}
+        self.frames[9] = Rect(0, 0, 360, 600)
+        self.batches = []
+        self.marked = []
+
+    def list_windows(self): return [w for w in self.frames if w not in self.att]
+    def attached_windows(self, strip): return {c: p for c, p in self.att.items() if p in strip and c in self.frames}
+    def gtk_extents(self, wid): return self.ext.get(wid, (0, 0, 0, 0))
+    def mark_attached(self, xids): self.marked.append(set(xids))
+
+    def place_many(self, moves):
+        self.batches.append([w for w, _ in moves])
+        for wid, rect in moves:
+            self.place(wid, rect)
+
+
+@pytest.fixture
+def attached(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(ctl.time, "monotonic", lambda: clock[0])
+    b = AttachBackend({1: Rect(900, 50, 500, 700), 2: Rect(100, 50, 500, 700), 3: Rect(500, 50, 500, 700)},
+                      area=Rect(0, 0, 4000, 1000))
+    c = Controller(b, gap=20, margin=30)
+    c.refresh_windows()
+    settle(c)
+    clock[0] += 5
+    return b, c, clock
+
+
+def _flush_left(b):
+    parent, tree = b.frames[3], b.frames[9]
+    assert tree.right == parent.x + 16                     # tree's right edge = parent's visible left edge
+    assert tree.y == parent.y + 10 and tree.h == parent.h - 42   # parent's visible top and height
+
+
+def test_attached_window_sits_flush_left_of_its_parent(attached):
+    b, c, _ = attached
+    assert c.order == [2, 3, 1] and 9 not in c.order       # no strip slot of its own
+    assert all(r["wid"] != 9 for r in c.snapshot())         # and no taskbar button
+    _flush_left(b)
+    assert b.frames[9].x - b.frames[2].right == 20          # the left neighbour keeps the gap to the tree, no overlap
+    assert b.marked[-1] == {9}
+
+
+def test_attached_window_moves_in_the_same_batch_while_scrolling(attached):
+    b, c, _ = attached
+    b.batches.clear()
+    c.scroll_by(300)
+    while c.tick():
+        _flush_left(b)                                      # every frame, not only at the end
+    _flush_left(b)
+    moved = [batch for batch in b.batches if 3 in batch]
+    assert moved and all(9 in batch for batch in moved)
+
+
+def test_attached_window_follows_minimise_and_is_left_alone_meanwhile(attached):
+    b, c, _ = attached
+    b.hidden_set.add(3)
+    c.refresh_windows()
+    b.batches.clear()
+    c.scroll_by(500)
+    settle(c)
+    assert not any(9 in batch for batch in b.batches)
+    b.hidden_set.discard(3)
+    c.refresh_windows()
+    settle(c)
+    _flush_left(b)
+
+
+def test_wider_attached_window_pushes_the_left_neighbour_away(attached, monkeypatch):
+    b, c, clock = attached
+    b.frames[9] = Rect(b.frames[9].x, b.frames[9].y, 500, b.frames[9].h)
+    c.reconcile()
+    settle(c)
+    _flush_left(b)
+    assert b.frames[9].w == 500 and b.frames[9].x - b.frames[2].right == 20
+
+
+def test_detached_window_is_released(attached):
+    b, c, _ = attached
+    b.att = {}
+    c.refresh_windows()
+    assert c.attached == {} and b.marked[-1] == set()
+    assert c.free_rects[3].x - c.free_rects[2].right == 20  # no room kept any more
+
+
+def test_centring_a_parent_centres_it_with_its_attached_window(attached):
+    b, c, _ = attached
+    c.center(3)
+    settle(c)
+    left, right = b.frames[9].x, b.frames[3].right
+    assert abs((left + right) / 2 - 2000) <= 9              # lead is 360 - 16 px; the pair is in the middle

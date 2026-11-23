@@ -91,6 +91,9 @@ class Controller:
         self._size_tries = {}       # wid -> times we re-sent its size because it did not take it
         self._last_vis = ()
         self._settled = False       # the strip is at rest and its gap zones are shown
+        self.attached = {}          # child -> parent: UTILITY windows transient for a strip window, docked to its left
+        self.att_w = {}             # child -> its visible width (what it takes of its parent's slot)
+        self.gtk = {}               # wid -> _GTK_FRAME_EXTENTS (left, right, top, bottom) of parents and children
 
     # ------------------------------------------------------------- queries
     def _work_area(self):
@@ -154,6 +157,98 @@ class Controller:
     def _vis(self):
         """Windows that take part in the strip layout (everything not minimised)."""
         return [w for w in self.order if w not in self.hidden]
+
+    def _children(self, parent):
+        """The windows attached to ``parent``, nearest the parent first."""
+        return sorted(c for c, p in self.attached.items() if p == parent)
+
+    def _lead(self, wid):
+        """Room kept free left of ``wid``'s frame for the windows attached to it."""
+        kids = self._children(wid)
+        return layout.attached_lead(self.gtk.get(wid, (0, 0, 0, 0)), [self.att_w[c] for c in kids]) if kids else 0
+
+    def _leads(self, order):
+        out = {}
+        for ident in order:
+            src = self.drag["wid"] if ident == PLACEHOLDER and self.drag else ident
+            if src in self.order:
+                lead = self._lead(src)
+                if lead:
+                    out[ident] = lead
+        return out
+
+    def _update_attached(self):
+        """Find the attached windows again (and their widths and shadows). Returns True if the layout must change."""
+        find = getattr(self.b, "attached_windows", None)
+        if find is None:
+            return False
+        att = {c: p for c, p in find(set(self.order)).items() if p in self.order}
+        ext = getattr(self.b, "gtk_extents", lambda wid: (0, 0, 0, 0))
+        widths, gtk = {}, {}
+        for c, p in att.items():
+            frame = self.b.frame_rect(c)
+            if frame is None:
+                continue
+            gtk.setdefault(p, ext(p))
+            gtk[c] = ext(c)
+            widths[c] = max(1, frame.w - gtk[c][0] - gtk[c][1])
+        att = {c: p for c, p in att.items() if c in widths}
+        changed = att != self.attached or widths != self.att_w or gtk != self.gtk
+        if set(att) != set(self.attached):
+            getattr(self.b, "mark_attached", lambda xids: None)(set(att))
+        for c in set(self.attached) - set(att):
+            self.placed.pop(c, None)
+        self.attached, self.att_w, self.gtk = att, widths, gtk
+        return changed
+
+    def _attached_resized(self):
+        """Cheap check (no window list scan): did an attached window change its visible width? Takes the new widths."""
+        changed = False
+        for c in self.attached:
+            frame = self.b.frame_rect(c)
+            if frame is None:
+                continue
+            l, r = self.gtk.get(c, (0, 0, 0, 0))[:2]
+            w = max(1, frame.w - l - r)
+            if abs(w - self.att_w.get(c, w)) > 2:
+                self.att_w[c] = w
+                changed = True
+        return changed
+
+    def _attached_moves(self, parent, frame):
+        """[(child, Rect)] that keep ``parent``'s attached windows flush against it when its frame is at ``frame``. Each
+        keeps KEEP_ON_SCREEN px on screen when it is parked (see there)."""
+        kids = [(c, self.att_w[c], self.gtk.get(c, (0, 0, 0, 0))) for c in self._children(parent)]
+        if not kids or parent in self.hidden:
+            return []
+        out = []
+        for c, r in layout.attached_frames(frame, self.gtk.get(parent, (0, 0, 0, 0)), kids).items():
+            x = max(self.area.x - r.w + KEEP_ON_SCREEN, min(r.x, self.full_right - KEEP_ON_SCREEN))
+            r = Rect(x, r.y, r.w, r.h)
+            if self.placed.get(c) != r:
+                out.append((c, r))
+        return out
+
+    def _place(self, moves):
+        """Send [(wid, Rect)] to the window manager in one batch and remember them."""
+        if not moves:
+            return
+        now = time.monotonic()
+        many = getattr(self.b, "place_many", None)
+        if many is not None:
+            many(moves)
+        else:
+            for wid, rect in moves:
+                self.b.place(wid, rect)
+        for wid, rect in moves:
+            self.placed[wid] = rect
+            self.placed_at[wid] = now
+
+    def _follow_frame(self, parent):
+        """The user drags or resizes ``parent`` by hand: its attached windows follow its real frame."""
+        frame = self.b.frame_rect(parent)
+        if frame is not None:
+            self._place(self._attached_moves(parent, frame))
 
     def _vidx(self, idx):
         """Index into the visible list that corresponds to index ``idx`` of the full order."""
@@ -255,6 +350,7 @@ class Controller:
         self.hidden = hidden
         self._track_minimized()
         changed = self._update_tops() or changed
+        changed = self._update_attached() or changed
         for w in self.order:                      # first time a window is actually on screen: take it out of maximised
             if w not in hidden and w not in self._prepared:
                 self._prepared.add(w)
@@ -323,14 +419,16 @@ class Controller:
         order = self.view_order()
         if not order:
             return                      # everything is minimised ("show desktop"): freeze, so it all comes back as it was
+        leads = self._leads(order)
         rects, self.total = layout.compute(
-            self._items(order), self.area, self.gap, self.margin, self.scroll, self.vmargin)
+            self._items(order), self.area, self.gap, self.margin, self.scroll, self.vmargin, leads)
         items = self._items(order)
-        self._bounds = (self.margin + items[0][1] / 2, self.total - self.margin - items[-1][1] / 2)
+        lead0 = leads.get(items[0][0], 0)
+        self._bounds = (self.margin + (lead0 + items[0][1]) / 2, self.total - self.margin - items[-1][1] / 2)
         if not self._frozen:
             self.scroll = self._clamp(self.scroll)
         rects, self.total = layout.compute(
-            self._items(order), self.area, self.gap, self.margin, self.scroll, self.vmargin)
+            self._items(order), self.area, self.gap, self.margin, self.scroll, self.vmargin, leads)
 
         skip = self.drag["wid"] if self.drag and self.drag["source"] == "window" else None
         keep = set()
@@ -371,7 +469,7 @@ class Controller:
     def tick(self):
         """Advance the animation one frame. Returns True while still moving."""
         moving = False
-        now = time.monotonic()
+        moves = []
         for wid, t in self.tgt.items():
             c = self.cur.get(wid, t.x)
             if abs(t.x - c) < 1:
@@ -382,9 +480,9 @@ class Controller:
             self.cur[wid] = c
             rect = Rect(round(c), t.y, t.w, t.h)
             if self.placed.get(wid) != rect:
-                self.b.place(wid, rect)
-                self.placed[wid] = rect
-                self.placed_at[wid] = now
+                moves.append((wid, rect))
+            moves += self._attached_moves(wid, rect)       # in the same batch: no lag behind the parent
+        self._place(moves)
         if not moving:
             vis = tuple(w for w, t in self.tgt.items() if t.intersects(self.area))
             if vis != self._last_vis:       # taskbar highlights visible windows
@@ -410,7 +508,7 @@ class Controller:
         self.reserved = {"idx": idx, "w": w, "until": self._until(timeout)}
         self.layout()
         before = [x for x in self.order[:idx] if x not in self.hidden]
-        slot_x = self.margin + sum(self.size[x][0] for x in before) + self.gap * len(before)
+        slot_x = self.margin + sum(self._lead(x) + self.size[x][0] for x in before) + self.gap * len(before)
         self.scroll_to(layout.reveal(self.scroll, slot_x, w, self.area.w, self.margin))
 
     def reserve_timeout(self, seconds=LAUNCH_TIMEOUT):
@@ -486,7 +584,8 @@ class Controller:
         if wid not in xs:
             return False
         self._user_scrolled = True
-        self.scroll_to(layout.center_scroll(xs[wid], self.size[wid][0], self.area.w))
+        lead = self._lead(wid)                 # the window and what is attached to it, together
+        self.scroll_to(layout.center_scroll(xs[wid] - lead, lead + self.size[wid][0], self.area.w))
         return True
 
     def scroll_step_dir(self, direction):
@@ -497,12 +596,14 @@ class Controller:
         xs = self._strip_xs()
         if wid not in xs:               # unknown, or minimised and not on the strip right now
             return
+        lead = self._lead(wid)
         self.scroll_to(layout.reveal(
-            self.scroll, xs[wid], self.size[wid][0], self.area.w, self.margin))
+            self.scroll, xs[wid] - lead, lead + self.size[wid][0], self.area.w, self.margin))
 
     def _strip_xs(self):
         xs, x = {}, self.margin
         for wid in self._vis():
+            x += self._lead(wid)
             xs[wid] = x
             x += self.size[wid][0] + self.gap
         return xs
@@ -646,6 +747,7 @@ class Controller:
         idx = self.index_for_center(d["wid"], frame.cx)
         d["idx"] = idx
         self.layout()
+        self._follow_frame(d["wid"])
 
     def _resize_step(self, down):
         wid = self.resizing
@@ -664,6 +766,7 @@ class Controller:
             self._frozen = True
             self.scroll = self.area.x + self._strip_xs()[wid] - frame.x
             self.layout()
+            self._follow_frame(wid)
         else:
             self.resizing = None
             self._frozen = False
@@ -702,6 +805,8 @@ class Controller:
             avail_h = self._fill_h(wid)                  # it will not take it: live with what it gives us
             self.size[wid] = [frame.w, None if frame.h >= avail_h - 2 else frame.h]
             self._size_tries.pop(wid, None)
+            changed = True
+        if self._attached_resized():                    # e.g. the user made the docked panel wider
             changed = True
         if changed:
             self.layout()

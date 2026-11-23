@@ -485,6 +485,10 @@ def main(argv=None):
         if toggl_service is not None:
             toggl_service.stop()
         ending = safety.session_ending()           # logout/reboot: nothing may block, the session is going away anyway
+        try:
+            xwm.release_attached()                 # attached windows (docked panels) place themselves again
+        except Exception:
+            traceback.print_exc()
         ctl.restore_all()
         xwm.d.sync()
         dock.restore("never" if ending else "no-block")
@@ -527,6 +531,7 @@ def main(argv=None):
         if not xwm.grab_super_scroll():
             print("sdesk: Super+scroll is already taken by another program; "
                   "the taskbar still works", file=sys.stderr)
+        xwm.claim_attached()                 # _SDESK_ATTACHED_MANAGER: from now on sdesk moves attached windows
         ctl.refresh_windows()
         ctl.adopt_minimized(saved_minimized)
         safety.save_minimized(ctl.hidden_since)
