@@ -122,7 +122,7 @@ def main(argv=None):
         ctl.reserve_timeout(LAUNCH_TIMEOUT)       # keep the slot open while the app starts
         launch(item)
 
-    menu = QuickMenu(load_menu_items(), on_pick=on_pick, on_cancel=lambda: ctl.release())
+    menu = QuickMenu(load_menu_items(), on_pick=on_pick, on_cancel=lambda: ctl.release(), set_blur=xwm.set_blur_region)
 
     def open_menu(idx, x, y, above=False):
         if ctl.drag or ctl.resizing is not None:
