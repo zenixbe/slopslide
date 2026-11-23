@@ -228,6 +228,51 @@ with a dash. The tooltip gives the exact values, what each device is doing, and 
 
 `--battery off` hides it and reads nothing. `lab/demo_battery.py` shows it in the lab with stand-in values.
 
+## Toggl timer
+
+<img src="media/toggl-bar-states.png" alt="Offline, running, forgotten (red), Second Brain down (orange ring)" width="560">
+
+Right of the clock, plain like it. `sdesk/toggl.py` talks to Second Brain (`--toggl-url`, default
+`http://127.0.0.1:8769`), which holds the Toggl token:
+
+| Call | Used for |
+| --- | --- |
+| `GET /api/ws/toggl/current` | the running timer; read every 45 s and right after an own action (Second Brain caches it 30 s) |
+| `GET /api/ws/toggl/projects` | the active projects for the search (every 15 min) |
+| `GET /api/ws/toggl/entries?limit=200` | "start again", the previous entry and today's total (every 5 min) |
+| `GET /openapi.json` | is `PATCH /current` there? Until it is, the description is read-only with the tooltip "needs Second Brain update" |
+| `POST /api/ws/toggl/start` | Start, a "start again" row, "Back to …" (Second Brain stops a running timer first) |
+| `POST /api/ws/toggl/stop` | Stop, middle-click, Super+Shift+T |
+| `PATCH /api/ws/toggl/current` | Save a changed description |
+
+All calls run on one worker thread; GTK only gets the result. The seconds are counted locally from the start time.
+A failed read keeps the last known state and turns the ring orange; the tooltip and the card say why. Nothing is started,
+stopped or changed by itself: only a click or a hotkey does that.
+
+- **Idle**: "Start timer". The card has a search field (client and project name, every word must match), up to four
+  recent entries to start again (one per project + description), the matching projects, then the chosen project, a
+  description field and Start. Toggl needs both a project and a description. Keys: ↑↓, Enter, Tab, Esc.
+- **Running**: description, project, time. The card shows the start time and the running time, the description (Enter
+  saves, at most 400 characters), **Stop** (Ctrl+Enter), **Back to: …** (the newest entry that is not the running one) and
+  **Save**.
+- **Today's total** (extra 6): finished entries that started today (local time) plus the running timer's part of today.
+  The ring fills towards `--toggl-target` hours (0 = no ring); the card footer and the tooltip give the numbers. An entry
+  stopped in Toggl itself only counts after Second Brain's hourly sync.
+- **Shake** (extra 4): in `--toggl-work-hours` without a timer, "Start timer" shakes and lights up, then again every
+  `--toggl-nag-every` minutes. The format is days and/or times: `mon-fri 09:00-18:00`, `mon,wed 9-17`, `off`.
+- **Forgot** (extra 11): past `threshold` hours (16, from `/current`, or its `too_long`), the item and the time turn red;
+  the card says to stop it and fix the end time in Toggl.
+- **Hotkeys** (extra 9): Super+T opens the card; Super+T while it is open goes back to the previous entry; Super+Shift+T
+  stops. Checked free on 2026-11-23: kwin has `Meta+T` only for the Krohnkite script, which is off; Deepin and key-nav-app
+  (Super tap only) do not use them. If another program holds one, sdesk says so on start and the click still works.
+  `--toggl-keys off` grabs nothing.
+
+<img src="media/toggl-forgot.png" alt="A timer running for 17 h" width="420"> <img src="media/toggl-nag.png" alt="Start timer shakes" width="250">
+
+To test without the real API (it bills customers): `lab/demo_toggl.py` runs sdesk in the lab against
+`tests/fake_toggl.py`, a stand-in on port 18769. Change its state with `curl -XPOST localhost:18769/__fake -d '…'`
+(see the script). The unit tests use the same stand-in.
+
 ## Thread badges (Claude Code, T3 Code)
 
 The taskbar boxes of Claude and T3 Code carry small coloured count badges after their name: **orange** = threads that wait

@@ -8,11 +8,12 @@ gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("PangoCairo", "1.0")
 import math  # noqa: E402
 import time  # noqa: E402
+from datetime import datetime  # noqa: E402
 
 import cairo  # noqa: E402
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
-from . import audio, battery, chrometabs, favicons  # noqa: E402
+from . import audio, battery, chrometabs, favicons, toggl  # noqa: E402
 from .baranim import Row  # noqa: E402
 from .menu import shorten, window_label  # noqa: E402
 from .shapes import rounded_rects  # noqa: E402
@@ -117,7 +118,7 @@ class Item:
 
     def __init__(self, key, wid=None, kind=None):
         self.key, self.wid = key, wid
-        self.kind = kind or ("add" if key == "add" else "window")      # window | add | clock | battery | volume | sound
+        self.kind = kind or ("add" if key == "add" else "window")      # window | add | clock | toggl | battery | volume | sound
         self.title = self.wm_class = ""
         self.tip = ""                                # the full window title: shown as the tooltip
         self.tabs = None                             # a Chrome window's tabs [{id, title, full, url, active, icon}] when known
@@ -176,7 +177,7 @@ class Taskbar(Gtk.Window):
                   "off": (1, 1, 1, 0.30)}
 
     def __init__(self, controller, xwm, height=52, position="bottom", gap=8, sound=True, nag_after=1800, nag_every=300,
-                 battery=False):
+                 battery=False, toggl=False):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
         self.c = controller
         self.xwm = xwm
@@ -192,6 +193,19 @@ class Taskbar(Gtk.Window):
         self.items = {"add": Item("add"), "clock": Item("clock", kind="clock")}
         self.items["clock"].title = time.strftime("%H:%M")
         self.heads = ["clock"]
+        self.toggl = None                             # toggl.State, or None while nothing was read yet
+        self.toggl_open = False                       # its card is open: the item is lit
+        self.toggl_hours = None                       # toggl.WorkHours: when "Start timer" shakes if no timer runs
+        self.toggl_target_h = 8.0                     # today's target in hours (0 = none)
+        self.toggl_nag_every = 600                    # seconds between two shakes
+        self.toggl_hotkeys = ""                       # shown in the tooltip ("Super+T")
+        self._toggl_last_nag = 0.0
+        self._toggl_sig = None
+        self.on_toggl_click = lambda x, y: None       # left click: open the card above (x, y)
+        self.on_toggl_stop = lambda: None             # middle click while a timer runs
+        if toggl:
+            self.items["toggl"] = Item("toggl", kind="toggl")
+            self.heads.append("toggl")
         self.batteries = {}                           # key (mouse | left | right) -> battery.Reading
         if battery:
             self.items["battery"] = Item("battery", kind="battery")
@@ -360,7 +374,7 @@ class Taskbar(Gtk.Window):
         """Compositor mode: tell kwin to blur what is behind each box (rounded like the box)."""
         rects = []
         for key, (x, w) in self.row.positions().items():
-            if key not in self.items or self.items[key].kind in ("clock", "battery", "sound", "volume"):
+            if key not in self.items or self.items[key].kind in ("clock", "toggl", "battery", "sound", "volume"):
                 continue                                              # no box there: nothing to frost
             bx, by, bw, bh = self._box_rect(key, x, w)
             if bw >= 6:
@@ -462,6 +476,8 @@ class Taskbar(Gtk.Window):
             return self.PAD_X * 2 + probe.get_pixel_size()[0] + 2 * self.SLOT_PAD
         if item.kind == "volume":
             return self.SLIDER_W + 2 * self.SLOT_PAD
+        if item.kind == "toggl":
+            return self._toggl_width() + 2 * self.SLOT_PAD
         if item.kind == "battery":
             return self.PAD_X * 2 + sum(self._bat_width(k) for k in self.BAT_KEYS) + self.BAT_SEP * 2 + 2 * self.SLOT_PAD
         if item.kind == "sound":
@@ -596,6 +612,10 @@ class Taskbar(Gtk.Window):
         if item is not None and item.title != now:
             item.title = now
             self.area.queue_draw()
+        if "toggl" in self.items and self.toggl is not None:
+            if self.toggl.running:
+                self.area.queue_draw()                                    # the running time ticks
+            self._toggl_nag()
         return True
 
     SOUND_ICONS = {"headset": ("audio-headphones", "audio-headset", "audio-volume-high"),
@@ -703,6 +723,194 @@ class Taskbar(Gtk.Window):
                 cr.move_to(tx, cy - lh / 2 + dy)
                 PangoCairo.show_layout(cr, num)
                 x += self._bat_width(key) + self.BAT_SEP
+
+    # ----------------------------------------------------------------- toggl
+    TG_RING = 16                # px: the ring of today's total (with the play triangle / the running dot inside)
+    TG_GAP = 8
+    TG_DESC_MAX = 220           # px of the description in the bar (the rest is in the card and the tooltip)
+    TG_PROJ_MAX = 130
+    TG_RED = (0.97, 0.44, 0.44)
+    TG_ORANGE = DOT_COLORS["waiting"]
+
+    def set_toggl(self, state):
+        """Show a new toggl.State. The row only re-measures when the text changes (not every second)."""
+        if "toggl" not in self.items:
+            return
+        self.toggl = state
+        sig = self._toggl_texts()[:3]
+        if sig != self._toggl_sig:
+            self._toggl_sig = sig
+            self.refresh()
+        self.area.queue_draw()
+
+    def set_toggl_open(self, is_open):
+        if "toggl" in self.items and is_open != self.toggl_open:
+            self.toggl_open = is_open
+            self.area.queue_draw()
+
+    def toggl_anchor(self):
+        """Screen point above the middle of the timer item: where its card opens."""
+        pos = self.row.positions().get("toggl")
+        if pos is None:
+            return self.sw / 2, self.y
+        bx, _, bw, _ = self._box_rect("toggl", *pos)
+        return bx + bw / 2, self.y
+
+    def _toggl_texts(self):
+        """(main, dim, clock, look): look is idle | run | forgot | offline | loading."""
+        s = self.toggl
+        if s is None or (not s.known and not s.error):
+            return "Toggl…", "", "", "loading"
+        if not s.known:
+            return "Toggl offline", "", "", "offline"
+        r = s.running
+        if not r:
+            return "Start timer", "", "", "idle"
+        clock = toggl.fmt_clock(toggl.elapsed(r))
+        return (r.get("description") or "(no description)", toggl.project_label(r), clock,
+                "forgot" if toggl.forgot(r) else "run")
+
+    def _tg_layout(self, text, width=None, bold=False):
+        layout = self.area.create_pango_layout(text)
+        if bold:
+            desc = self.area.get_pango_context().get_font_description().copy()
+            desc.set_weight(Pango.Weight.BOLD)
+            layout.set_font_description(desc)
+        layout.set_ellipsize(Pango.EllipsizeMode.END)
+        layout.set_width(-1 if width is None else int(max(0, width) * Pango.SCALE))
+        return layout
+
+    def _tg_clock_w(self, clock):
+        """Room for the running time: that of "0:00:00" (or "00:00:00"), so ticking never moves the row."""
+        return self._tg_layout("0" * (len(clock) - 6) + "0:00:00", bold=True).get_pixel_size()[0] if clock else 0
+
+    def _toggl_width(self):
+        main, dim, clock, _look = self._toggl_texts()
+        w = self.PAD_X + self.TG_RING + self.TG_GAP
+        w += min(self._tg_layout(main).get_pixel_size()[0], self.TG_DESC_MAX)
+        if dim:
+            w += self.TG_GAP + min(self._tg_layout("· " + dim).get_pixel_size()[0], self.TG_PROJ_MAX)
+        if clock:
+            w += self.TG_GAP + self._tg_clock_w(clock)
+        return w + self.PAD_X
+
+    def _toggl_today(self):
+        s = self.toggl
+        return toggl.today_seconds(s.entries, s.running) if s is not None and s.known else 0
+
+    def _toggl_nag(self):
+        """Extra 4: during work hours without a timer, "Start timer" shakes (like a window minimised for too long)."""
+        s = self.toggl
+        if self.toggl_hours is None or s is None or s.error or self.toggl_open:
+            return
+        now = time.monotonic()
+        if now - self._toggl_last_nag < self.toggl_nag_every:
+            return
+        if toggl.should_nag(s.running, self.toggl_hours, datetime.now(), online=s.known):
+            self._toggl_last_nag = now
+            self.items["toggl"].shake_t0 = now
+            self._kick()
+
+    def _paint_toggl(self, cr, bx, by, bw, bh, item, fade):
+        """The timer, plain like the clock: a ring with today's total, then what runs and for how long. A lit box while
+        its card is open, while it shakes, and red when the timer was probably forgotten."""
+        main, dim, clock, look = self._toggl_texts()
+        lit = 1.0 if self.toggl_open else item.nag
+        if look == "forgot" or lit > 0.01:
+            DropOverlay._round(cr, bx, by, bw, bh, self.RADIUS)
+            if look == "forgot":
+                cr.set_source_rgba(0.86, 0.15, 0.15, 0.42 * fade)
+            else:
+                cr.set_source_rgba(*ACCENT, 0.62 * lit * fade)
+            cr.fill()
+            DropOverlay._round(cr, bx + 0.5, by + 0.5, bw - 1, bh - 1, self.RADIUS - 0.5)
+            edge = self.TG_RED if look == "forgot" else ACCENT_EDGE
+            cr.set_source_rgba(*edge, (0.9 if look == "forgot" else 0.95 * lit) * fade)
+            cr.set_line_width(1)
+            cr.stroke()
+        cr.save()
+        cr.rectangle(bx, by, bw, bh)
+        cr.clip()
+        light = (0.82 + 0.18 * max(item.hov, lit)) * fade
+        cy = by + bh / 2
+        x = bx + self.PAD_X
+        self._paint_toggl_ring(cr, x + self.TG_RING / 2, cy, look, fade)
+        x += self.TG_RING + self.TG_GAP
+        quiet = look in ("idle", "offline", "loading") and lit < 0.5
+        alpha = light * (0.75 if quiet else 1.0) * (0.6 if look in ("offline", "loading") else 1.0)
+        for text, cap, rgba, bold in ((main, self.TG_DESC_MAX, (1, 1, 1, alpha), False),
+                                      (("· " + dim) if dim else "", self.TG_PROJ_MAX, (1, 1, 1, 0.62 * light), False),
+                                      (clock, None, ((1, 0.82, 0.82) if look == "forgot" else (1, 1, 1)) + (light,), True)):
+            if not text:
+                continue
+            layout = self._tg_layout(text, cap, bold)
+            lw, lh = layout.get_pixel_size()
+            if cap is None:
+                lw = self._tg_clock_w(clock)
+            cr.set_source_rgba(0, 0, 0, 0.55 * fade)
+            cr.move_to(x, cy - lh / 2 + 1)
+            PangoCairo.show_layout(cr, layout)
+            cr.set_source_rgba(*rgba)
+            cr.move_to(x, cy - lh / 2)
+            PangoCairo.show_layout(cr, layout)
+            x += lw + self.TG_GAP
+        cr.restore()
+
+    def _paint_toggl_ring(self, cr, cx, cy, look, fade):
+        """Extra 6: a ring that fills with today's total against the target; a play sign (no timer) or a dot (running)
+        inside. Orange while Second Brain does not answer."""
+        r = self.TG_RING / 2 - 1.5
+        frac = min(1.0, self._toggl_today() / (self.toggl_target_h * 3600)) if self.toggl_target_h else 0.0
+        warn = self.toggl is not None and bool(self.toggl.error)
+        for shadow in (True, False):
+            dy = 1 if shadow else 0
+            cr.new_path()
+            cr.arc(cx, cy + dy, r, 0, 2 * math.pi)
+            cr.set_line_width(2.2)
+            cr.set_source_rgba(*((0, 0, 0, 0.45 * fade) if shadow else (1, 1, 1, 0.30 * fade)))
+            cr.stroke()
+            if frac > 0 and not shadow:
+                cr.new_path()
+                cr.arc(cx, cy, r, -math.pi / 2, -math.pi / 2 + 2 * math.pi * frac)
+                cr.set_source_rgba(*(self.TG_ORANGE if warn else ACCENT_EDGE), 0.95 * fade)
+                cr.stroke()
+            col = (0, 0, 0, 0.45 * fade) if shadow else (
+                (*self.TG_RED, fade) if look == "forgot" else (*self.TG_ORANGE, fade) if warn
+                else (*ACCENT_EDGE, fade) if look == "run" else (1, 1, 1, 0.85 * fade))
+            cr.set_source_rgba(*col)
+            if look in ("run", "forgot"):
+                cr.arc(cx, cy + dy, 3.2, 0, 2 * math.pi)
+            else:
+                cr.move_to(cx - 2, cy - 3.5 + dy)
+                cr.line_to(cx + 3.5, cy + dy)
+                cr.line_to(cx - 2, cy + 3.5 + dy)
+                cr.close_path()
+            cr.fill()
+
+    def _toggl_tip(self):
+        s = self.toggl
+        keys = self.toggl_hotkeys
+        if s is None or (not s.known and not s.error):
+            return "Toggl: reading Second Brain…"
+        lines = []
+        if s.error:
+            lines.append(f"⚠ {s.error}" + (" (showing the last known state)" if s.known else ""))
+        if s.known:
+            r = s.running
+            if r:
+                secs = toggl.elapsed(r)
+                if toggl.forgot(r):
+                    lines.append(f"Running for {int(secs // 3600)} h: did you forget to stop it?")
+                start = toggl.parse_time(r.get("start"))
+                lines += [r.get("description") or "(no description)", toggl.project_label(r),
+                          f"Started {time.strftime('%H:%M', time.localtime(start)) if start else '?'}, running {toggl.fmt_clock(secs)}"]
+            else:
+                lines.append("No timer running")
+            target = f" of {toggl.fmt_hm(self.toggl_target_h * 3600)}" if self.toggl_target_h else ""
+            lines.append(f"Today {toggl.fmt_hm(self._toggl_today())}{target}")
+        act = "Click: open the card" + (", middle-click: stop" if s.running else "")
+        lines.append(act + (f" · {keys}" if keys else ""))
+        return "\n".join(lines)
 
     # ------------------------------------------------------------- hit tests
     def _box_rect(self, key, x, w):
@@ -899,6 +1107,10 @@ class Taskbar(Gtk.Window):
             self._paint_battery(cr, bx, by, bw, bh, fade)
             cr.restore()
             return
+        if item.kind == "toggl":
+            cr.restore()
+            self._paint_toggl(cr, bx, by, bw, bh, item, fade)
+            return
         layout = self._layout(item)
         if item.kind == "clock":
             layout.set_text(item.title, -1)
@@ -926,7 +1138,7 @@ class Taskbar(Gtk.Window):
         (which paints its own backdrop first and passes ``backdrop=False``)."""
         if bw < 1:
             return
-        if item.kind in ("clock", "battery", "sound", "volume"):
+        if item.kind in ("clock", "toggl", "battery", "sound", "volume"):
             self._paint_plain(cr, bx, by, bw, bh, item)
             return
         px, py = 0, self.y
@@ -1161,6 +1373,9 @@ class Taskbar(Gtk.Window):
             self.muted = not self.muted
             self.on_mute()
             self.area.queue_draw()
+        elif ev.button == 2 and kind == "toggl":
+            if self.toggl is not None and self.toggl.running:
+                self.on_toggl_stop()                                      # middle click stops the timer
         elif ev.button == 2 and kind == "window":
             self.c.b.close(self.items[key].wid)                           # middle click closes the window
         elif ev.button == 3:
@@ -1169,7 +1384,7 @@ class Taskbar(Gtk.Window):
                 self.on_window_menu(self.items[key].wid, ev.x_root, self.y)   # Close / Force Quit
             elif kind == "sound":
                 self.on_sound_menu(ev.x_root, self.y)                     # choose an output
-            elif kind in ("clock", "battery", "volume"):
+            elif kind in ("clock", "toggl", "battery", "volume"):
                 pass
             else:                                                         # between boxes, or on "+": add a window here
                 self.on_menu(self._windows_before(ev.x) if key is None else self._n_windows(), ev.x_root, self.y)
@@ -1187,6 +1402,8 @@ class Taskbar(Gtk.Window):
                 self.on_menu(self._n_windows(), ev.x_root, self.y)
             elif kind == "sound":
                 self.on_sound_click()
+            elif kind == "toggl":
+                self.on_toggl_click(*self.toggl_anchor())
             elif kind == "window":
                 item = self.items[p[0]]
                 seg = self._segment_at(p[0], ev.x)
@@ -1207,6 +1424,8 @@ class Taskbar(Gtk.Window):
             tip.set_text(time.strftime("%A %d %B %Y"))
         elif item.kind == "battery":
             tip.set_text(battery.tooltip(self.batteries))
+        elif item.kind == "toggl":
+            tip.set_text(self._toggl_tip())
         elif item.kind == "volume":
             tip.set_text(f"Volume {self.volume}%{' (muted)' if self.muted else ''}\nDrag or scroll to change, middle-click to mute")
         elif item.kind == "sound":
