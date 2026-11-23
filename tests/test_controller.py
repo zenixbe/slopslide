@@ -1103,3 +1103,36 @@ def test_centring_a_parent_centres_it_with_its_attached_window(attached):
     settle(c)
     left, right = b.frames[9].x, b.frames[3].right
     assert abs((left + right) / 2 - 2000) <= 9              # lead is 360 - 16 px; the pair is in the middle
+
+
+
+@pytest.fixture
+def attached_long(monkeypatch):
+    """Like ``attached``, but on a strip far wider than the screen, so the parent can scroll off-screen to the left."""
+    monkeypatch.setattr(ctl.time, "monotonic", lambda: 100.0)
+    b = AttachBackend({i: Rect(i * 10, 50, 900, 700) for i in range(1, 9)}, area=Rect(0, 0, 2000, 1000))
+    c = Controller(b, gap=20, margin=30)
+    c.refresh_windows()
+    settle(c)
+    return b, c
+
+
+def test_attached_window_stays_flush_while_its_parent_is_partly_off_screen_left(attached_long):
+    """Issue #26: the parent is still partly visible, its tree is completely off-screen to the left. The tree is not
+    parked with KEEP_ON_SCREEN px on screen (that put it over the parent), but stays flush, at negative x."""
+    b, c = attached_long
+    c.scroll_by(c.free_rects[3].x + 318)                    # parent to x = -318, as observed live
+    while c.tick():
+        _flush_left(b)                                      # every frame, not only at the end
+    assert b.frames[3].x == -318
+    _flush_left(b)
+    assert b.frames[9].right <= 0                           # completely off-screen: no stub over the parent
+
+
+def test_attached_window_parks_with_its_parent(attached_long):
+    """Parent parked at the left screen edge (KEEP_ON_SCREEN px on screen): its tree parks there as well."""
+    b, c = attached_long
+    c.scroll_by(10 ** 6)
+    settle(c)
+    assert b.frames[3].right == ctl.KEEP_ON_SCREEN
+    assert b.frames[9].right == ctl.KEEP_ON_SCREEN

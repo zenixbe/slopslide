@@ -141,7 +141,9 @@ parent. The T3 task tree (`llm-usage-tasktree`) is one. sdesk then:
 
 - moves it in the same X batch as its parent, on every animation frame, so it never lags behind;
 - keeps its visible right edge on the parent's visible left edge (both windows' `_NET_FRAME_EXTENTS` and
-  `_GTK_FRAME_EXTENTS` count), and gives it the parent's visible top and height;
+  `_GTK_FRAME_EXTENTS` count), and gives it the parent's visible top and height. That holds at negative x too: while
+  the parent still shows, the attached window stays flush even if it is completely off-screen to the left. Only when
+  the parent is parked at the left screen edge does the attached window park there as well (issue #26);
 - gives it no strip slot and no taskbar button, but keeps its width free left of the parent: the left neighbour never
   overlaps it;
 - never hides or unmaps it. When the parent is minimised, sdesk leaves it alone (the window manager hides transients
