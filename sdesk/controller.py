@@ -87,6 +87,7 @@ class Controller:
         self._bounds = (None, None)  # strip x of the first / last window's centre
         self._center_pending = None  # a clicked window that was minimised: centre it as soon as it is back
         self._centered = None        # the window nearest the middle of the screen: the one the taskbar highlights
+        self._last_active = None     # the last strip window that had the focus: a new window opens to its right
         self._size_tries = {}       # wid -> times we re-sent its size because it did not take it
         self._last_vis = ()
         self._settled = False       # the strip is at rest and its gap zones are shown
@@ -230,7 +231,7 @@ class Controller:
             new.sort(key=lambda w: frames[w].x if frames[w] else 0)
             self._first = False
 
-        anchor = self.b.active()
+        anchor = self._new_window_anchor()
         for w in new:
             frame = self.b.frame_rect(w)
             if frame is None:
@@ -268,6 +269,18 @@ class Controller:
             self._show_focused()
             self.on_change()
 
+    def _in_strip(self, wid):
+        return wid in self.order and wid not in self.hidden
+
+    def _new_window_anchor(self):
+        """The window a new window opens to the right of. When the new window appears, the focus often is no longer on a
+        strip window: kwin already gave it to the new window, or a launcher, menu or the taskbar had it. Then the last
+        strip window that had the focus counts, then the centred one. None: the new window goes to the end."""
+        for wid in (self.b.active(), self._last_active, self._centered):
+            if self._in_strip(wid):
+                return wid
+        return None
+
     def _track_minimized(self):
         """Note when each window went into the taskbar, and forget it once it is back."""
         now, before = self.clock(), dict(self.hidden_since)
@@ -295,6 +308,8 @@ class Controller:
         self.tmin.pop(wid, None)
         self._size_tries.pop(wid, None)
         self.original.pop(wid, None)
+        if self._last_active == wid:
+            self._last_active = None
         if self.drag and self.drag["wid"] == wid:
             self.drag = None
             self._set_indicator(None)
@@ -521,6 +536,9 @@ class Controller:
             self.reveal(active)
 
     def active_changed(self):
+        active = self.b.active()
+        if self._in_strip(active):
+            self._last_active = active
         self._show_focused()
         self.on_change()
 
