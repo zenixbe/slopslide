@@ -134,6 +134,35 @@ reliably, the cover is skipped rather than drawing a wrong colour.
     ./run.sh --edge-gap off             # no cover at all
     ./run.sh --edge-fade 64             # optional: a soft fade this wide left of the gap (off by default)
 
+## Attached windows
+
+A window that is **type UTILITY and transient for a strip window** (`WM_TRANSIENT_FOR`) is *attached* to that window, its
+parent. The T3 task tree (`llm-usage-tasktree`) is one. sdesk then:
+
+- moves it in the same X batch as its parent, on every animation frame, so it never lags behind;
+- keeps its visible right edge on the parent's visible left edge (both windows' `_NET_FRAME_EXTENTS` and
+  `_GTK_FRAME_EXTENTS` count), and gives it the parent's visible top and height;
+- gives it no strip slot and no taskbar button, but keeps its width free left of the parent: the left neighbour never
+  overlaps it;
+- never hides or unmaps it. When the parent is minimised, sdesk leaves it alone (the window manager hides transients
+  with their parent); it docks again when the parent comes back;
+- keeps the gap click zones off it (issue #9).
+
+Several attached windows of one parent stack to the left of each other. A UTILITY window that is not transient for a strip
+window is not attached (and is never the floating sidebar on the right if it is attached).
+
+**Contract with the attached window's own code** (issue #24, llm-usage-sidebar#53). While sdesk runs:
+
+| Where | Property | Type | Value |
+|---|---|---|---|
+| root window | `_SDESK_ATTACHED_MANAGER` | CARDINAL/32 | pid of the running sdesk |
+| each attached window | `_SDESK_ATTACHED` | CARDINAL/32 | `1` |
+
+sdesk sets `_SDESK_ATTACHED_MANAGER` at start and `_SDESK_ATTACHED` as soon as a window becomes attached; it deletes
+`_SDESK_ATTACHED` when the window stops being attached and both properties on a clean exit. If both are present and the
+pid is alive, the attached window must not move or resize itself: sdesk does it. After a crash the root property can
+stay behind with a dead pid: treat a dead pid as "no sdesk" and dock yourself again.
+
 ## Scrolling and centring
 
 While the strip is narrower than the screen it sits centred as a whole. As soon as you scroll with the wheel or click a

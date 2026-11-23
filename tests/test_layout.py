@@ -210,3 +210,17 @@ def test_clip_without_holes_keeps_zones():
 def test_clip_with_several_holes_in_one_zone():
     out = clip_zones([(3, Rect(0, 0, 20, 300))], [Rect(0, 0, 20, 100), Rect(0, 200, 20, 100)], 6, 6)
     assert out == [(3, Rect(0, 100, 20, 100))]
+
+
+def test_attached_frames_dock_against_the_visible_left_edge():
+    from sdesk.layout import attached_frames, attached_lead
+    parent = Rect(1204, 40, 2279, 1328)                     # T3: client-side shadow 16, 16, 10, 32
+    out = attached_frames(parent, (16, 16, 10, 32), [(9, 360, (0, 0, 0, 0)), (8, 100, (4, 4, 2, 2))])
+    assert out[9] == Rect(860, 50, 360, 1286)               # the real tree's place next to T3
+    assert out[8] == Rect(760 - 4, 50 - 2, 108, 1290)       # a second one stacks further left, its own shadow outside
+    assert attached_lead((16, 16, 10, 32), [360]) == 344 and attached_lead((0, 0, 0, 0), []) == 0
+
+
+def test_compute_keeps_lead_room_left_of_an_item():
+    rects, total = layout.compute([(1, 100, None), (2, 100, None)], Rect(0, 0, 1000, 500), 10, 20, 0, leads={2: 50})
+    assert rects[1].x == 20 and rects[2].x == 20 + 100 + 10 + 50 and total == 20 + 100 + 10 + 50 + 100 + 20

@@ -30,19 +30,22 @@ class Rect:
                 and self.y < other.bottom and other.y < self.bottom)
 
 
-def compute(items, area, gap, margin, scroll, vmargin=None):
+def compute(items, area, gap, margin, scroll, vmargin=None, leads=None):
     """Lay out ``items`` in one row.
 
     Each item is ``(id, width, height_or_None[, min_top])``. Returns ({id: Rect in screen coordinates}, total strip width).
     ``margin`` is the horizontal margin (strip ends); ``vmargin`` (default: same) the top/bottom one.
     ``min_top`` lets one window sit lower than the others (its top is ``max(vmargin, min_top)``) while every window
     keeps the same bottom edge. Height None means "fill down to the bottom margin".
+    ``leads`` ({id: px}): room kept free left of an item, inside its slot, for the windows attached to it (see
+    ``attached_lead``); the gap to the left neighbour is measured from there.
     """
     vmargin = margin if vmargin is None else vmargin
     rects = {}
     x = margin
     for item in items:
         ident, w, h = item[:3]
+        x += (leads or {}).get(ident, 0)
         top = max(vmargin, item[3] if len(item) > 3 else 0)
         avail_h = max(1, area.h - top - vmargin)
         height = avail_h if h is None else max(1, min(h, avail_h))
@@ -50,6 +53,32 @@ def compute(items, area, gap, margin, scroll, vmargin=None):
         x += w + gap
     total = (x - gap if items else 0) + margin
     return rects, max(total, 2 * margin)
+
+
+def visible_rect(frame, gtk):
+    """The part of an outer ``frame`` that is really drawn: without the invisible shadow (``_GTK_FRAME_EXTENTS``, as
+    (left, right, top, bottom)) that a client-side-decorated window keeps around itself."""
+    l, r, t, b = gtk
+    return Rect(frame.x + l, frame.y + t, max(1, frame.w - l - r), max(1, frame.h - t - b))
+
+
+def attached_lead(parent_gtk, widths):
+    """Room an attached window needs left of its parent's frame: the visible ``widths`` of the windows docked against
+    the parent's left edge, minus the parent's own invisible left shadow (those pixels are free anyway)."""
+    return max(0, sum(widths) - parent_gtk[0]) if widths else 0
+
+
+def attached_frames(parent_frame, parent_gtk, children):
+    """Outer frames for the windows attached to a parent placed at ``parent_frame``. ``children``: [(id, visible width,
+    gtk extents)], nearest the parent first. Each one sits flush against the left visible edge of the one before it (the
+    first against the parent), with the parent's visible top and height. Returns {id: Rect}."""
+    pv = visible_rect(parent_frame, parent_gtk)
+    out, right = {}, pv.x
+    for ident, vw, (l, r, t, b) in children:
+        vis = Rect(right - vw, pv.y, vw, pv.h)
+        out[ident] = Rect(vis.x - l, vis.y - t, vis.w + l + r, vis.h + t + b)
+        right = vis.x
+    return out
 
 
 def scroll_bounds(total, view_w, first_cx=None, last_cx=None):

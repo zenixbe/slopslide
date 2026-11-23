@@ -30,6 +30,7 @@ class XWM:
         self._zone_wins = []             # pool of invisible input-only windows (right-click targets)
         self._zone_idx = {}              # their xid -> insert index
         self._zones_shown = []
+        self._attached_marked = set()    # windows that carry our _SDESK_ATTACHED property
         self.A = {}                      # atom cache
         # callbacks, set by the app
         self.on_clients = lambda: None
@@ -149,7 +150,7 @@ class XWM:
     def _sidebar_candidates(self):
         cands = []
         for xid in self._cardinals(self.root, "_NET_CLIENT_LIST"):
-            if xid in self.exclude_xids():
+            if xid in self.exclude_xids() or xid in self._attached_marked:     # a docked panel is no screen sidebar
                 continue
             w = self.win(xid)
             try:
@@ -190,6 +191,68 @@ class XWM:
             if rect is not None:
                 out.append(rect)
         return out
+
+    def attached_windows(self, strip_xids):
+        """{child: parent} of the windows that are *attached* to a strip window: type UTILITY and transient for a window
+        of the strip (``strip_xids``), such as a side panel docked against its parent. Every UTILITY window is watched,
+        so that a WM_TRANSIENT_FOR set after it appeared is noticed (see ``pump``)."""
+        out = {}
+        for xid in self._cardinals(self.root, "_NET_CLIENT_LIST"):
+            if xid in strip_xids or xid in self.exclude_xids():
+                continue
+            w = self.win(xid)
+            try:
+                if self._atoms(w, "_NET_WM_WINDOW_TYPE")[:1] != ["_NET_WM_WINDOW_TYPE_UTILITY"]:
+                    continue
+                self._watch(w)
+                parent = w.get_wm_transient_for()
+            except error.XError:
+                continue
+            if parent is not None and parent.id in strip_xids:
+                out[xid] = parent.id
+        return out
+
+    def gtk_extents(self, wid):
+        """(left, right, top, bottom) of _GTK_FRAME_EXTENTS: the invisible shadow a client-side-decorated window draws
+        around itself. (0, 0, 0, 0) if it has none."""
+        v = self._cardinals(self.win(wid), "_GTK_FRAME_EXTENTS")
+        return tuple(v[:4]) if len(v) >= 4 else (0, 0, 0, 0)
+
+    def mark_attached(self, xids):
+        """Publish the attached-window contract (docs/DETAILS.md, "Attached windows"): ``_SDESK_ATTACHED_MANAGER`` = our
+        pid on the root window, ``_SDESK_ATTACHED`` = 1 on each window in ``xids`` (and taken off the ones no longer in
+        it). A window with both may not move or resize itself: sdesk does that."""
+        xids = set(xids)
+        self.claim_attached()
+        for xid in xids - self._attached_marked:
+            try:
+                self.win(xid).change_property(self.atom("_SDESK_ATTACHED"), Xatom.CARDINAL, 32, [1])
+            except error.XError:
+                pass
+        for xid in self._attached_marked - xids:
+            self._unmark(xid)
+        self._attached_marked = xids
+        self.d.flush()
+
+    def claim_attached(self):
+        """Set ``_SDESK_ATTACHED_MANAGER`` (our pid) on the root window, once: sdesk moves attached windows from now on."""
+        if not getattr(self, "_manager_set", False):
+            self.root.change_property(self.atom("_SDESK_ATTACHED_MANAGER"), Xatom.CARDINAL, 32, [os.getpid()])
+            self._manager_set = True
+            self.d.flush()
+
+    def _unmark(self, xid):
+        err = error.CatchError()                        # the window may be gone already
+        self.win(xid).delete_property(self.atom("_SDESK_ATTACHED"), onerror=err)
+
+    def release_attached(self):
+        """On exit: take the contract back, so the attached windows place themselves again."""
+        for xid in self._attached_marked:
+            self._unmark(xid)
+        self._attached_marked = set()
+        self.root.delete_property(self.atom("_SDESK_ATTACHED_MANAGER"))
+        self._manager_set = False
+        self.d.sync()
 
     def sidebar_rect(self):
         """Rect of a floating widget sidebar on the right edge, or None."""
@@ -323,14 +386,24 @@ class XWM:
 
     # ------------------------------------------------------------- actions
     def place(self, wid, rect):
-        w = self.win(wid)
-        try:
-            l, r, t, b = self._frame_extents(w)
-            cw, ch = max(1, rect.w - l - r), max(1, rect.h - t - b)
-            flags = 1 | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (2 << 12)   # NW gravity, x/y/w/h, pager
-            self._send(w, "_NET_MOVERESIZE_WINDOW", [flags, rect.x, rect.y, cw, ch])
-        except error.XError:
-            pass                                       # window vanished mid-animation
+        self.place_many([(wid, rect)])
+
+    def place_many(self, moves):
+        """Move/resize several outer frames, [(wid, Rect)], in one X batch (one flush): an attached window moves in the
+        same step as its parent."""
+        mask = X.SubstructureRedirectMask | X.SubstructureNotifyMask
+        for wid, rect in moves:
+            w = self.win(wid)
+            try:
+                l, r, t, b = self._frame_extents(w)
+                cw, ch = max(1, rect.w - l - r), max(1, rect.h - t - b)
+                flags = 1 | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (2 << 12)   # NW gravity, x/y/w/h, pager
+                data = [v & 0xFFFFFFFF for v in (flags, rect.x, rect.y, cw, ch)]
+                ev = protocol.event.ClientMessage(window=w, client_type=self.atom("_NET_MOVERESIZE_WINDOW"), data=(32, data))
+                self.root.send_event(ev, event_mask=mask)
+            except error.XError:
+                pass                                   # window vanished mid-animation
+        self.d.flush()
 
     def unmaximize(self, wid):
         w = self.win(wid)
@@ -492,7 +565,7 @@ class XWM:
                         workarea = True
                 elif name in ("_NET_WM_NAME", "WM_NAME", "WM_CLASS", "_NET_WM_ICON"):
                     titles.add(ev.window.id)
-                elif name in ("_NET_WM_STATE", "_NET_WM_DESKTOP", "_NET_WM_WINDOW_TYPE"):
+                elif name in ("_NET_WM_STATE", "_NET_WM_DESKTOP", "_NET_WM_WINDOW_TYPE", "WM_TRANSIENT_FOR"):
                     clients = True
             elif ev.type == X.KeyPress:
                 name = self._keys.get((ev.detail, ev.state & ~(X.LockMask | X.Mod2Mask) & 0xFF))
