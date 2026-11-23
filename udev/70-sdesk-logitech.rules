@@ -1,0 +1,5 @@
+# SlopSlide (sdesk --battery): let the logged-in user read the battery of a mouse behind a Logitech receiver.
+# "uaccess" gives the user of the active seat read/write access to the receiver's hidraw nodes (no group, no sudo
+# at run time). The number must stay below 73, where systemd-logind applies uaccess.
+# Install: see "Battery of the mouse and the Dygma Defy" in README.md.
+SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="046d", TAG+="uaccess"

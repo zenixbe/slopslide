@@ -19,7 +19,7 @@ the taskbar to bring any window to the middle.
 </div>
 
 > Made with a lot of help from AI, hence the name. It works on the author's machine (Deepin 25, `kwin_x11`, one
-> ultra-wide monitor) and is tested with 224 unit tests plus an isolated test desktop. It has not been tried on other
+> ultra-wide monitor) and is tested with 251 unit tests plus an isolated test desktop. It has not been tried on other
 > setups. See [Status](#status).
 
 ## What it does
@@ -139,6 +139,9 @@ lands in it. Right-click a taskbar box for **Close** or **Force Quit**. Middle-c
 - **Clock and sound** sit left of the boxes without a background: the time, a volume slider (drag, click or scroll) and the
   current output. A click on the output switches to the next one and moves what plays along. Right-click picks from a list.
   Middle-click mutes.
+- **Battery** sits between the clock and the volume slider: an icon and the percentage for the mouse and for each half of
+  a Dygma Defy. Orange at 20% or less, teal with a bolt while charging, dimmed with a dash when a device cannot be read.
+  Hover for the exact values and the time of the last read. `--battery off` hides it. See below for the one-time setup.
 - **Sidebar friendly:** with a floating sidebar on the right, the strip uses the area left of it. Windows on the right
   fold away under a gap in front of the sidebar.
 
@@ -161,6 +164,22 @@ python3 -m venv --system-site-packages .venv
 `launcher/install.sh`. The icon and `sdesk-toggle` also read your own options from `~/.config/sdesk/args`
 (for example `--sound-match logitech`).
 
+### Battery of the mouse and the Dygma Defy
+
+- **Dygma Defy:** read over its serial port (`/dev/serial/by-id/usb-DYGMA_DEFY_*`). Your user must be in the `dialout`
+  group. SlopSlide asks once a minute, closes the port at once, and skips the read while Bazecor has the port open.
+- **Logitech mouse** (through its USB receiver, HID++): the receiver is only readable by root until you install the udev
+  rule in `udev/`. Run these commands once, from the repo folder:
+
+  ```bash
+  sudo cp udev/70-sdesk-logitech.rules /etc/udev/rules.d/
+  sudo udevadm control --reload-rules
+  sudo udevadm trigger --subsystem-match=hidraw --action=change
+  ```
+
+  Then check: `getfacl /dev/hidraw*` shows your user with `rw` on the receiver. If not, unplug the receiver and plug it in
+  again. To undo: `sudo rm /etc/udev/rules.d/70-sdesk-logitech.rules` and run the two `udevadm` commands again.
+
 ## Safety: nothing survives a reboot
 
 - SlopSlide never starts by itself, and it changes no Deepin or kwin setting. A reboot always gives a normal desktop.
@@ -179,7 +198,7 @@ python3 -m venv --system-site-packages .venv
 ## Development
 
 ```bash
-.venv/bin/python -m pytest                 # 224 tests, no display needed
+.venv/bin/python -m pytest                 # 251 tests, no display needed
 lab/start_lab.sh                           # an isolated test desktop (Xvfb :99 + its own kwin_x11)
 .venv/bin/python lab/record_media.py setup # open demo windows and SlopSlide in the lab
 .venv/bin/python lab/record_media.py       # record the videos and screenshots in docs/media

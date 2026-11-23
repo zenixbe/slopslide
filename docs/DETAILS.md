@@ -208,6 +208,26 @@ center, a headset being plugged in).
     ./run.sh --sound-match "usb"    # cycle only through the outputs containing "usb"
     ./run.sh --sound off            # no sound box
 
+## Battery (mouse, Dygma Defy)
+
+Between the clock and the volume slider: per device an icon and the percentage (mouse, Defy left, Defy right). At 20% or
+less it is orange; while charging (or full on the cable) it is teal with a bolt; a device that cannot be read is dimmed
+with a dash. The tooltip gives the exact values, what each device is doing, and the time of the last read.
+
+`sdesk/battery.py` reads both on a worker thread, once a minute:
+
+- **Dygma Defy**: the Focus protocol on `/dev/serial/by-id/usb-DYGMA_DEFY_*`: `wireless.battery.left.level`,
+  `.right.level`, `.left.status`, `.right.status` (status 0 = on battery, 1 = charging, 2 = charged, 3 = fault, 4 = that
+  half is not connected; from Bazecor's source). Every reply ends with a line `.`; old input is thrown away before each
+  command, so a late reply can never shift the answers. The port is opened with a non-blocking `flock` (like Bazecor's
+  serial library does) and closed at once; if Bazecor holds it, the last values stay and the tooltip says so.
+- **Logitech mouse**: HID++ 2.0 on the receiver's vendor interface (`/dev/hidraw*`, vendor 046d, a receiver product id,
+  report id 0x11 in its descriptor). The headset (046d:0aa7) is not a receiver. Feature UNIFIED_BATTERY (0x1004) first,
+  then BATTERY_STATUS (0x1000), then BATTERY_VOLTAGE (0x1001). A sleeping mouse shows as not readable. The receiver needs
+  the udev rule in `udev/` (see the README).
+
+`--battery off` hides it and reads nothing. `lab/demo_battery.py` shows it in the lab with stand-in values.
+
 ## Thread badges (Claude Code, T3 Code)
 
 The taskbar boxes of Claude and T3 Code carry small coloured count badges after their name: **orange** = threads that wait
