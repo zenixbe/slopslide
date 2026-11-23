@@ -217,13 +217,18 @@ class Controller:
 
     def _attached_moves(self, parent, frame):
         """[(child, Rect)] that keep ``parent``'s attached windows flush against it when its frame is at ``frame``. Each
-        keeps KEEP_ON_SCREEN px on screen when it is parked (see there)."""
+        keeps KEEP_ON_SCREEN px on screen when it is parked (see there), but on the left only while the parent itself is
+        parked there: while the parent still shows, its attached windows stay flush, completely off-screen if need be
+        (issue #26: a 1 px stub at the screen edge lay over the parent, and the tree was not flush)."""
         kids = [(c, self.att_w[c], self.gtk.get(c, (0, 0, 0, 0))) for c in self._children(parent)]
         if not kids or parent in self.hidden:
             return []
         out = []
+        parked_left = frame.right <= self.area.x + KEEP_ON_SCREEN
         for c, r in layout.attached_frames(frame, self.gtk.get(parent, (0, 0, 0, 0)), kids).items():
-            x = max(self.area.x - r.w + KEEP_ON_SCREEN, min(r.x, self.full_right - KEEP_ON_SCREEN))
+            x = min(r.x, self.full_right - KEEP_ON_SCREEN)
+            if parked_left:
+                x = max(self.area.x - r.w + KEEP_ON_SCREEN, x)
             r = Rect(x, r.y, r.w, r.h)
             if self.placed.get(c) != r:
                 out.append((c, r))
