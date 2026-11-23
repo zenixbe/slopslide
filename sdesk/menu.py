@@ -12,7 +12,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, Gtk, Pango  # noqa: E402
 
-from . import favicons  # noqa: E402
+from . import exitlog, favicons  # noqa: E402
 from .shapes import rounded_rects  # noqa: E402
 
 CONFIG_PATH = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
@@ -137,9 +137,10 @@ def window_menu_items(wm_class, n_windows, close, force_quit):
 
 
 def launch(item):
-    """Run the item detached from sdesk, so it survives sdesk quitting."""
-    subprocess.Popen(item.exec, shell=True, start_new_session=True, stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    """Run the item detached from sdesk, so it survives sdesk quitting (and without sdesk's blocked stop signals)."""
+    with exitlog.unblocked():
+        subprocess.Popen(item.exec, shell=True, start_new_session=True, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 # Glass in the style of the taskbar (sdesk/taskbar.py): dark translucent card that kwin blurs behind, 6 px corners,

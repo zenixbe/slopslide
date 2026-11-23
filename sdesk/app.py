@@ -11,7 +11,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import audio, battery, chrometabs, dock, ipc, safety, threads, toggl  # noqa: E402
+from . import audio, battery, chrometabs, dock, exitlog, ipc, safety, threads, toggl  # noqa: E402
 from .edgefade import EdgeFade  # noqa: E402
 from .controller import LAUNCH_TIMEOUT, Controller  # noqa: E402
 from .menu import MenuItem, QuickMenu, launch, load_menu_items, window_menu_items  # noqa: E402
@@ -95,6 +95,7 @@ def run_guardian(pid):
                           lambda: dock.restore("block"))
     if result == "restored":
         print("sdesk guardian: sdesk died; windows and dock restored", flush=True)
+        exitlog.write(f"guardian: sdesk {pid} died without a clean exit; windows and dock restored")
         safety.mark_clean()
     try:
         os.remove(safety.GUARDIAN_PID)
@@ -103,11 +104,22 @@ def run_guardian(pid):
     return 0
 
 
+def _cgroup():
+    """The cgroup sdesk runs in. If it is the scope of another program (a terminal, an agent), stopping that program
+    makes systemd send SIGTERM to sdesk too."""
+    try:
+        with open("/proc/self/cgroup") as f:
+            return f.read().strip().rsplit("/", 1)[-1]
+    except OSError:
+        return "?"
+
+
 def panic():
     """`sdesk --restore`: whatever state things are in, get a normal desktop back."""
     me = os.getpid()
     for entry in os.listdir("/proc"):
-        if entry.isdigit() and int(entry) != me and safety.is_sdesk(int(entry)):
+        if entry.isdigit() and int(entry) != me and safety.is_own_sdesk(int(entry)):   # never another session's sdesk
+            exitlog.write(f"sdesk --restore (pid {me}) sends SIGTERM to {entry}")
             try:
                 os.kill(int(entry), signal.SIGTERM)                 # a running sdesk cleans up after itself
             except OSError:
@@ -464,9 +476,9 @@ def main(argv=None):
         Gtk.main_quit()
         return False
 
-    GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGINT, shutdown)
-    GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, shutdown)
-    GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGHUP, shutdown)      # terminal closed
+    # SIGINT, SIGTERM and SIGHUP (terminal closed) stop sdesk; the log says who sent them (issue #18)
+    exitlog.watch(lambda signo: GLib.idle_add(shutdown, priority=GLib.PRIORITY_HIGH))
+    exitlog.write(f"started: {' '.join(sys.argv[1:])}; cgroup {_cgroup()}")
 
     control = ipc.Server(lambda req: ipc.handle(req, ctl.snapshot, ctl.focus, focused=xwm.active),
                          run_on_main=lambda fn: GLib.idle_add(fn))

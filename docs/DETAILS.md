@@ -71,13 +71,18 @@ While it runs:
 
 * **Normal exit** (Ctrl+C, `kill`, closing the terminal, logout): windows go back to where they were, the dock comes back.
   During a logout or reboot it does this without waiting on anything, so it cannot delay shutdown.
+* **Why it stopped:** every stop adds one timestamped line to `/run/user/<uid>/sdesk/sdesk.log`: the signal with the
+  sender's pid and command line (and its parent), `stop via launcher`, `sdesk --restore`, or the guardian's restore. The
+  start line names the cgroup: the launcher starts sdesk in its own systemd scope, because a stop of the scope it was
+  started from (a terminal, an agent session) sends SIGTERM to sdesk too.
 * **Crash, `kill -9`, out-of-memory kill:** a tiny independent *guardian* process (started with sdesk) notices within a
   second and puts every window back and brings the dock back. Window positions are kept in `/run/user/<uid>/sdesk/`.
 * **Panic button**, from any terminal (also if the guardian itself is gone):
 
       cd /path/to/slopslide && ./run.sh --restore
 
-  It stops sdesk (only processes started as `python -m sdesk`; never an editor or terminal that merely mentions the name),
+  It stops sdesk (only processes started as `python -m sdesk` with the same `XDG_RUNTIME_DIR` and `DISPLAY`, so a lab
+  never stops the real one; never an editor or terminal that merely mentions the name),
   moves every window back where it was and restores the dock. Without a terminal: log out and in, or reboot.
 
 ### What happens to Deepin's dock
@@ -334,11 +339,12 @@ autostart entry.
 
     .venv/bin/python -m pytest              # layout + controller logic, no X needed
     .venv/bin/python lab/record_media.py    # re-record the videos and screenshots of the README (needs the lab, see below)
-    lab/start_lab.sh                        # isolated Xvfb :99 + its own kwin_x11 + own D-Bus (real session untouched)
+    lab/start_lab.sh                        # isolated Xvfb (free display from :99) + own kwin_x11 + own D-Bus; one LAB per thread
     COMPOSE=X lab/start_lab.sh              # same, with kwin's own compositor (transparency; Xvfb has no real OpenGL)
-    DISPLAY=:99 .venv/bin/python lab/demo_window.py Files nautilus 3b6ea5 &    # spawn test windows
-    DISPLAY=:99 .venv/bin/python -m sdesk &
-    DISPLAY=:99 .venv/bin/python lab/shot.py out.png                            # screenshot
+    . /tmp/sdesk-lab/env                    # the lab's DISPLAY and XDG_RUNTIME_DIR (never share the real ones)
+    .venv/bin/python lab/demo_window.py Files nautilus 3b6ea5 &    # spawn test windows
+    .venv/bin/python -m sdesk &
+    .venv/bin/python lab/shot.py out.png                            # screenshot
     lab/stop_lab.sh
 
 The lab never sets `KWIN_COMPOSE`: Deepin saves that in a dconfig shared with the real session, which silently switched the real desktop to "performance" mode. It suspends the lab compositor over the lab's own D-Bus instead.

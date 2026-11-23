@@ -126,6 +126,42 @@ def is_sdesk(pid, guardian=False):
     return runs_module and (("--guardian" in args) == guardian)
 
 
+SESSION_VARS = ("XDG_RUNTIME_DIR", "DISPLAY")
+
+
+def _environ(pid):
+    """The environment of a process as a dict (None if it cannot be read: gone, or another user's)."""
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as f:
+            raw = f.read()
+    except OSError:
+        return None
+    env = {}
+    for item in raw.split(b"\0"):
+        key, sep, value = item.partition(b"=")
+        if sep:
+            env[key.decode("utf-8", "replace")] = value.decode("utf-8", "replace")
+    return env
+
+
+def same_session(pid, env=None):
+    """True only if ``pid`` has the same XDG_RUNTIME_DIR and DISPLAY as this process (or ``env``).
+
+    A lab or a test runs its own sdesk with a different XDG_RUNTIME_DIR and DISPLAY (lab/start_lab.sh). This keeps
+    their stop commands away from the real sdesk on the desktop, and the real launcher away from a lab (issue #18).
+    An unreadable environment counts as different: when in doubt, leave the process alone."""
+    theirs = _environ(pid)
+    if theirs is None:
+        return False
+    mine = os.environ if env is None else env
+    return all(theirs.get(k) == mine.get(k) for k in SESSION_VARS)
+
+
+def is_own_sdesk(pid, guardian=False, env=None):
+    """An sdesk (see is_sdesk) of this desktop session (see same_session): the only kind we may ever signal."""
+    return is_sdesk(pid, guardian) and same_session(pid, env)
+
+
 def pid_alive(pid):
     """True while ``pid`` is a running sdesk (also guards against the pid having been reused by something else)."""
     try:

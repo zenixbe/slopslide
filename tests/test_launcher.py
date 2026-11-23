@@ -56,4 +56,16 @@ def test_start_passes_the_user_args_to_sdesk(tmp_path, monkeypatch):
     state = iter([[]] + [[123]] * 50)
     monkeypatch.setattr(launcher, "running", lambda: next(state))
     assert launcher.start() == 0
-    assert spawned[0][1:] == ["-m", "sdesk", "--disable-dock", "--sound-match", "logitech"]
+    assert spawned[0][-5:] == ["-m", "sdesk", "--disable-dock", "--sound-match", "logitech"]
+    assert spawned[0][:len(launcher.own_scope())] == launcher.own_scope()
+
+
+def test_sdesk_gets_its_own_scope_only_when_a_user_manager_is_there(tmp_path, monkeypatch):
+    monkeypatch.setattr(launcher.shutil, "which", lambda name: "/usr/bin/systemd-run")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    assert launcher.own_scope() == []                                   # no user bus here (a lab): start plainly
+    (tmp_path / "bus").touch()
+    scope = launcher.own_scope()
+    assert scope[:3] == ["systemd-run", "--user", "--scope"]            # out of the caller's cgroup (issue #18)
+    monkeypatch.setattr(launcher.shutil, "which", lambda name: None)
+    assert launcher.own_scope() == []

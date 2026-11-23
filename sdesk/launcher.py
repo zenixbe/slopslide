@@ -1,6 +1,7 @@
 """Start / stop / toggle sdesk from a desktop icon:  python -m sdesk.launcher [toggle|start|stop|status]
 
-It never matches processes loosely: only ``python -m sdesk`` ones count (see safety.is_sdesk). Stopping is a plain SIGTERM,
+It never matches processes loosely: only ``python -m sdesk`` ones of this desktop session count (see safety.is_own_sdesk:
+same XDG_RUNTIME_DIR and DISPLAY, so a lab or test cannot stop the real sdesk). Stopping is a plain SIGTERM,
 which makes sdesk put every window and the Deepin dock back; if it does not finish in time it is killed and its guardian
 process does the same clean-up, so the desktop always comes back as it was.
 
@@ -9,12 +10,13 @@ Your own options for sdesk go in ``~/.config/sdesk/args`` (``$XDG_CONFIG_HOME/sd
 ``--disable-dock``; a missing file means no extra options."""
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
 import time
 
-from . import safety
+from . import exitlog, safety
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG = os.path.join(safety.STATE_DIR, "sdesk.log")
@@ -39,14 +41,14 @@ def running():
     """Pids of the running sdesk (not counting its guardian)."""
     out = []
     for name in os.listdir("/proc"):
-        if name.isdigit() and int(name) != os.getpid() and safety.is_sdesk(int(name)):
+        if name.isdigit() and int(name) != os.getpid() and safety.is_own_sdesk(int(name)):
             out.append(int(name))
     return out
 
 
 def guardians():
     return [int(n) for n in os.listdir("/proc")
-            if n.isdigit() and int(n) != os.getpid() and safety.is_sdesk(int(n), guardian=True)]
+            if n.isdigit() and int(n) != os.getpid() and safety.is_own_sdesk(int(n), guardian=True)]
 
 
 def notify(text):
@@ -73,14 +75,25 @@ def _wait_gone(pids, timeout):
     return False
 
 
+def own_scope():
+    """Command prefix that runs sdesk in its own systemd scope (``[]`` without systemd-run).
+
+    Without it sdesk stays in the cgroup of whoever ran the launcher: a terminal, or an agent session. When that one
+    ends, systemd stops its scope and sends SIGTERM to everything in it, sdesk included (issue #18)."""
+    bus = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/nonexistent", "bus")
+    if not shutil.which("systemd-run") or not os.path.exists(bus):         # no user manager here (a lab): start plainly
+        return []
+    return ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--description=sdesk (scrolling desktop)"]
+
+
 def start():
     if running():
         notify("Already running.")
         return 0
     os.makedirs(safety.STATE_DIR, exist_ok=True)
     with open(LOG, "ab") as log:
-        subprocess.Popen([sys.executable, "-m", "sdesk", "--disable-dock", *user_args()], cwd=ROOT, start_new_session=True,
-                         stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True)
+        subprocess.Popen([*own_scope(), sys.executable, "-m", "sdesk", "--disable-dock", *user_args()], cwd=ROOT,
+                         start_new_session=True, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True)
     for _ in range(15):                                   # it must still be alive a moment later, or something is wrong
         time.sleep(0.4)
         if running():
@@ -98,6 +111,8 @@ def stop():
     if not pids:
         notify("Not running.")
         return 0
+    exitlog.write(f"stop via launcher (pid {os.getpid()}, started by {exitlog.describe_pid(os.getppid())}): "
+                  f"SIGTERM to {', '.join(map(str, pids))}")
     for p in pids:
         os.kill(p, signal.SIGTERM)                        # sdesk puts the windows and the dock back itself
     if _wait_gone(pids, STOP_WAIT):

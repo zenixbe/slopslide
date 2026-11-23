@@ -15,7 +15,8 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "media")
 LAB = os.environ.get("LAB", "/tmp/sdesk-lab")
-ENV = {**os.environ, "DISPLAY": ":99", "XDG_CONFIG_HOME": f"{LAB}/config", "XDG_DATA_HOME": f"{LAB}/data",
+DISPLAY = os.environ.get("DISPLAY") if os.environ.get("XDG_RUNTIME_DIR") == f"{LAB}/run" else ":99"   # . "$LAB/env"
+ENV = {**os.environ, "DISPLAY": DISPLAY, "XDG_CONFIG_HOME": f"{LAB}/config", "XDG_DATA_HOME": f"{LAB}/data",
        "XDG_CACHE_HOME": f"{LAB}/cache", "XDG_RUNTIME_DIR": f"{LAB}/run"}
 PY = os.path.join(ROOT, ".venv", "bin", "python")
 W, H = 5120, 1440
@@ -75,7 +76,7 @@ class Recording:
         os.makedirs(OUT, exist_ok=True)
         self.name, self.raw = name, os.path.join(OUT, f"{name}.raw.mkv")
         self.proc = subprocess.Popen(
-            ["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", "25", "-video_size", f"{W}x{H}", "-i", ":99",
+            ["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", "25", "-video_size", f"{W}x{H}", "-i", DISPLAY,
              "-t", str(seconds), "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", self.raw], env=ENV)
         pause(0.6)
 
@@ -99,7 +100,7 @@ class Recording:
 def shot(name, crop=None):
     path = os.path.join(OUT, f"{name}.png")
     vf = f"crop={crop}" if crop else f"crop={W - 400}:{H}:0:0,scale=2000:-2"
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-video_size", f"{W}x{H}", "-i", ":99", "-frames:v", "1",
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-video_size", f"{W}x{H}", "-i", DISPLAY, "-frames:v", "1",
                     "-vf", vf, path], env=ENV, check=True)
     print(f"{name}: {os.path.getsize(path) // 1024} KB png", flush=True)
 
