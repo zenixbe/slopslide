@@ -43,7 +43,7 @@ _FALLBACK = {
         "bar_dim": [0, 0, 0, 0.16], "bar_flat": [25.5, 28.05, 35.7], "text": [255, 255, 255], "text_boost": 0,
         "shadow": [0, 0, 0], "shadow_k": 1, "tint": [255, 255, 255], "tint_k": 1, "line": [255, 255, 255],
         "line_boost": 0, "fill_boost": 0, "bw": 1, "warn": [244.8, 158.1, 10.2], "ok": [33.15, 196.35, 94.35],
-        "info": [58.65, 130.05, 244.8], "danger": "#f87171", "danger_fill": "#dc2626",
+        "info": [58.65, 130.05, 244.8], "ok_text": "#4ade80", "danger": "#f87171", "danger_fill": "#dc2626",
         "cairo": {"danger": [247.35, 112.2, 112.2], "danger_fill": [219.3, 38.25, 38.25],
                   "ghost_flat": [25.5, 33.15, 38.25]},
         "danger_deep": [127, 29, 29], "danger_soft": "#fca5a5", "danger_ink": "#fecaca", "danger_pale": "#fee2e2",
@@ -388,9 +388,9 @@ class Theme:
         self._tint_k = _num(tok, "tint_k", 1.0)
         self._line_boost = _num(tok, "line_boost", 0.0)
         self._fill_boost = _num(tok, "fill_boost", 0.0)
-        for key in ("text", "shadow", "tint", "line", "warn", "ok", "info", "danger", "danger_fill", "danger_deep",
-                    "danger_soft", "danger_ink", "danger_pale", "forgot_text", "muted", "knob", "glass_flat",
-                    "bar_flat"):
+        for key in ("text", "shadow", "tint", "line", "warn", "ok", "ok_text", "info", "danger", "danger_fill",
+                    "danger_deep", "danger_soft", "danger_ink", "danger_pale", "forgot_text", "muted", "knob",
+                    "glass_flat", "bar_flat"):
             setattr(self, "_" + key if key in ("text", "shadow", "tint", "line") else key, _f(_color(tok, key)[0]))
         exact_paint = tok.get("cairo") if isinstance(tok.get("cairo"), dict) else {}
         self._cairo = {}
