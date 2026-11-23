@@ -12,7 +12,7 @@ import time  # noqa: E402
 import cairo  # noqa: E402
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
-from . import audio, chrometabs, favicons  # noqa: E402
+from . import audio, battery, chrometabs, favicons  # noqa: E402
 from .baranim import Row  # noqa: E402
 from .menu import shorten, window_label  # noqa: E402
 from .shapes import rounded_rects  # noqa: E402
@@ -117,7 +117,7 @@ class Item:
 
     def __init__(self, key, wid=None, kind=None):
         self.key, self.wid = key, wid
-        self.kind = kind or ("add" if key == "add" else "window")      # window | add | clock | sound
+        self.kind = kind or ("add" if key == "add" else "window")      # window | add | clock | battery | volume | sound
         self.title = self.wm_class = ""
         self.tip = ""                                # the full window title: shown as the tooltip
         self.tabs = None                             # a Chrome window's tabs [{id, title, full, url, active, icon}] when known
@@ -166,7 +166,17 @@ class Taskbar(Gtk.Window):
     DOT_COLORS = {"waiting": (0.96, 0.62, 0.04), "done": (0.13, 0.77, 0.37), "busy": (0.23, 0.51, 0.96)}
     DOT_NAMES = {"waiting": "waiting for you", "done": "done", "busy": "working"}
 
-    def __init__(self, controller, xwm, height=52, position="bottom", gap=8, sound=True, nag_after=1800, nag_every=300):
+    BAT_ICON = 18               # px: the mouse / keyboard outline of a battery
+    BAT_GAP = 5                 # icon to number
+    BAT_SEP = 14                # between two devices
+    BAT_BOLT = 10               # the charging bolt (plus 3 px after it)
+    BAT_SIDE = 7                # the small L / R
+    BAT_KEYS = ("mouse", "left", "right")
+    BAT_COLORS = {"normal": (1, 1, 1, 0.82), "low": (*DOT_COLORS["waiting"], 1.0), "charging": (*ACCENT_EDGE, 1.0),
+                  "off": (1, 1, 1, 0.30)}
+
+    def __init__(self, controller, xwm, height=52, position="bottom", gap=8, sound=True, nag_after=1800, nag_every=300,
+                 battery=False):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
         self.c = controller
         self.xwm = xwm
@@ -182,6 +192,10 @@ class Taskbar(Gtk.Window):
         self.items = {"add": Item("add"), "clock": Item("clock", kind="clock")}
         self.items["clock"].title = time.strftime("%H:%M")
         self.heads = ["clock"]
+        self.batteries = {}                           # key (mouse | left | right) -> battery.Reading
+        if battery:
+            self.items["battery"] = Item("battery", kind="battery")
+            self.heads.append("battery")
         if sound:
             self.items["volume"] = Item("volume", kind="volume")
             self.items["sound"] = Item("sound", kind="sound")
@@ -346,7 +360,7 @@ class Taskbar(Gtk.Window):
         """Compositor mode: tell kwin to blur what is behind each box (rounded like the box)."""
         rects = []
         for key, (x, w) in self.row.positions().items():
-            if key not in self.items or self.items[key].kind in ("clock", "sound", "volume"):
+            if key not in self.items or self.items[key].kind in ("clock", "battery", "sound", "volume"):
                 continue                                              # no box there: nothing to frost
             bx, by, bw, bh = self._box_rect(key, x, w)
             if bw >= 6:
@@ -448,6 +462,8 @@ class Taskbar(Gtk.Window):
             return self.PAD_X * 2 + probe.get_pixel_size()[0] + 2 * self.SLOT_PAD
         if item.kind == "volume":
             return self.SLIDER_W + 2 * self.SLOT_PAD
+        if item.kind == "battery":
+            return self.PAD_X * 2 + sum(self._bat_width(k) for k in self.BAT_KEYS) + self.BAT_SEP * 2 + 2 * self.SLOT_PAD
         if item.kind == "sound":
             text_w = min(self._layout(item).get_pixel_size()[0], 170)
             return self.PAD_X + self.ICON + self.ICON_GAP + text_w + self.PAD_X + 2 * self.SLOT_PAD
@@ -607,6 +623,86 @@ class Taskbar(Gtk.Window):
             self.sound_tip = f"{sink.description}\nClick: next output, right-click: choose, scroll: volume"
         self.refresh()
         self.area.queue_draw()
+
+    # --------------------------------------------------------------- battery
+    def set_battery(self, readings):
+        """Show new battery readings ({key: battery.Reading}); the box only grows or shrinks for a charging bolt."""
+        if "battery" not in self.items:
+            return
+        self.batteries = dict(readings)
+        self.refresh()
+        self.area.queue_draw()
+
+    def _bat_text(self, key):
+        r = self.batteries.get(key)
+        return f"{r.level}%" if r is not None and r.available else "–"
+
+    def _bat_num_w(self):
+        """Every number gets the room of "100%": a level going from 85 to 100 never moves the row."""
+        probe = self._layout(self.items["battery"])
+        probe.set_text("100%", -1)
+        return probe.get_pixel_size()[0]
+
+    def _bat_width(self, key):
+        bolt = self.BAT_BOLT + 3 if battery.state(self.batteries.get(key)) == "charging" else 0
+        side = self.BAT_SIDE if key != "mouse" else 0                     # the small L / R next to the keyboard
+        return self.BAT_ICON + side + self.BAT_GAP + bolt + self._bat_num_w()
+
+    def _bat_path(self, cr, key, x, cy):
+        """Outline of the device (18 x 18 px, as in the mockup): a mouse, or a keyboard half."""
+        y = cy - self.BAT_ICON / 2
+        if key == "mouse":
+            DropOverlay._round(cr, x + 5, y + 2, 8, 14, 4)
+            cr.move_to(x + 9, y + 2)
+            cr.line_to(x + 9, y + 7)
+        else:
+            DropOverlay._round(cr, x + 2, y + 4, 14, 10, 2)
+            for dx in (5, 8, 11):
+                cr.move_to(x + dx, y + 7.5)
+                cr.line_to(x + dx + 0.01, y + 7.5)
+            cr.move_to(x + 5, y + 10.5)
+            cr.line_to(x + 13, y + 10.5)
+
+    def _paint_battery(self, cr, bx, by, bw, bh, fade):
+        """Per device: its outline, (a small L / R,) a bolt while charging, and the percentage. No box, like the clock.
+        Painted twice: a dark copy 1 px lower first, as the shadow that keeps it legible on any wallpaper."""
+        cy = by + bh / 2
+        small = self.area.create_pango_layout("")
+        small.set_font_description(Pango.FontDescription("Sans Bold 7"))
+        for shadow in (True, False):
+            x = bx + self.PAD_X
+            for key in self.BAT_KEYS:
+                st = battery.state(self.batteries.get(key))
+                rgba = (0, 0, 0, 0.55) if shadow else self.BAT_COLORS[st]
+                cr.set_source_rgba(rgba[0], rgba[1], rgba[2], rgba[3] * fade)
+                dy = 1 if shadow else 0
+                cr.new_path()
+                self._bat_path(cr, key, x, cy + dy)
+                cr.set_line_width(1.5)
+                cr.set_line_cap(cairo.LINE_CAP_ROUND)
+                cr.set_line_join(cairo.LINE_JOIN_ROUND)
+                cr.stroke()
+                tx = x + self.BAT_ICON
+                if key != "mouse":
+                    small.set_text("L" if key == "left" else "R", -1)
+                    cr.move_to(tx, cy - self.BAT_ICON / 2 - 1 + dy)            # superscript, right of the icon
+                    PangoCairo.show_layout(cr, small)
+                    tx += self.BAT_SIDE
+                tx += self.BAT_GAP
+                if st == "charging":
+                    sx, sy = tx, cy - 7 + dy                                # the bolt: M6 0 1 8h3l-1 6 5-8H5z in 10 x 14
+                    cr.move_to(sx + 6, sy)
+                    for px, py in ((1, 8), (4, 8), (3, 14), (8, 6), (5, 6)):
+                        cr.line_to(sx + px, sy + py)
+                    cr.close_path()
+                    cr.fill()
+                    tx += self.BAT_BOLT + 3
+                num = self._layout(self.items["battery"])
+                num.set_text(self._bat_text(key), -1)
+                _lw, lh = num.get_pixel_size()
+                cr.move_to(tx, cy - lh / 2 + dy)
+                PangoCairo.show_layout(cr, num)
+                x += self._bat_width(key) + self.BAT_SEP
 
     # ------------------------------------------------------------- hit tests
     def _box_rect(self, key, x, w):
@@ -799,6 +895,10 @@ class Taskbar(Gtk.Window):
             self._paint_slider(cr, bx, by, bw, bh, item, fade)
             cr.restore()
             return
+        if item.kind == "battery":
+            self._paint_battery(cr, bx, by, bw, bh, fade)
+            cr.restore()
+            return
         layout = self._layout(item)
         if item.kind == "clock":
             layout.set_text(item.title, -1)
@@ -826,7 +926,7 @@ class Taskbar(Gtk.Window):
         (which paints its own backdrop first and passes ``backdrop=False``)."""
         if bw < 1:
             return
-        if item.kind in ("clock", "sound", "volume"):
+        if item.kind in ("clock", "battery", "sound", "volume"):
             self._paint_plain(cr, bx, by, bw, bh, item)
             return
         px, py = 0, self.y
@@ -1023,7 +1123,7 @@ class Taskbar(Gtk.Window):
         if self._vol_drag and ev.state & Gdk.ModifierType.BUTTON1_MASK:
             self._set_volume_from_x(ev.x)
             return True
-        if key is not None and self.items[key].kind == "clock":
+        if key is not None and self.items[key].kind in ("clock", "battery"):
             key = None                                                      # nothing to click there: no hover glow
         seg = (key, self._segment_at(key, ev.x)) if key is not None and self.items[key].tabs else None
         if seg != self._hover_seg:
@@ -1069,7 +1169,7 @@ class Taskbar(Gtk.Window):
                 self.on_window_menu(self.items[key].wid, ev.x_root, self.y)   # Close / Force Quit
             elif kind == "sound":
                 self.on_sound_menu(ev.x_root, self.y)                     # choose an output
-            elif kind in ("clock", "volume"):
+            elif kind in ("clock", "battery", "volume"):
                 pass
             else:                                                         # between boxes, or on "+": add a window here
                 self.on_menu(self._windows_before(ev.x) if key is None else self._n_windows(), ev.x_root, self.y)
@@ -1105,6 +1205,8 @@ class Taskbar(Gtk.Window):
             return False
         if item.kind == "clock":
             tip.set_text(time.strftime("%A %d %B %Y"))
+        elif item.kind == "battery":
+            tip.set_text(battery.tooltip(self.batteries))
         elif item.kind == "volume":
             tip.set_text(f"Volume {self.volume}%{' (muted)' if self.muted else ''}\nDrag or scroll to change, middle-click to mute")
         elif item.kind == "sound":

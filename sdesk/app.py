@@ -11,7 +11,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import audio, chrometabs, dock, ipc, safety, threads  # noqa: E402
+from . import audio, battery, chrometabs, dock, ipc, safety, threads  # noqa: E402
 from .edgefade import EdgeFade  # noqa: E402
 from .controller import LAUNCH_TIMEOUT, Controller  # noqa: E402
 from .menu import MenuItem, QuickMenu, launch, load_menu_items, window_menu_items  # noqa: E402
@@ -41,6 +41,9 @@ def parse_args(argv):
     p.add_argument("--bar-height", type=int, default=52)
     p.add_argument("--sound", default="auto", choices=("auto", "off"),
                    help="show the current sound output left of the taskbar icons (click = next output); 'off' hides it")
+    p.add_argument("--battery", default="auto", choices=("auto", "off"),
+                   help="show the battery of the mouse (Logitech receiver) and the Dygma Defy halves next to the clock; "
+                        "'off' hides it and never reads the devices")
     p.add_argument("--sound-match", default="", metavar="TEXT",
                    help="a click cycles only through the outputs whose name contains TEXT, e.g. 'logitech' "
                         "(default: every real output; also every one if fewer than two match)")
@@ -281,7 +284,7 @@ def main(argv=None):
         """A new taskbar window. Its look depends on whether a compositor runs, and a window's visual cannot change
         afterwards, so switching Deepin's window effects on/off means building a new one (see rebuild_bar)."""
         b = Taskbar(ctl, xwm, height=args.bar_height, position=args.bar, gap=args.bar_gap, sound=sound_on,
-                    nag_after=args.nag_after * 60, nag_every=max(1, args.nag_every) * 60)
+                    battery=args.battery != "off", nag_after=args.nag_after * 60, nag_every=max(1, args.nag_every) * 60)
         b.set_center(ctl.area.x + ctl.area.w / 2)
         b.on_menu = lambda idx, x, y: open_menu(idx, x, y, above=True)
         b.on_window_menu = open_window_menu
@@ -302,6 +305,8 @@ def main(argv=None):
         b.set_threads(state.get("threads", {}))
         if state["audio"]:
             b.set_sound(current_sink(state["audio"]))
+        if state.get("battery"):
+            b.set_battery(state["battery"])
         GLib.timeout_add(2500, b.refresh_glass)      # without a compositor: copy the wallpaper once windows have settled
         return False
 
@@ -322,6 +327,14 @@ def main(argv=None):
     if args.threads != "off":
         refresh_threads()
         GLib.timeout_add_seconds(3, refresh_threads)
+    if args.battery != "off":
+        def apply_battery(readings):
+            state["battery"] = readings
+            if state.get("bar") is not None:
+                state["bar"].set_battery(readings)
+            return False
+        state["battery_poller"] = battery.Poller(lambda readings: GLib.idle_add(apply_battery, readings))
+        state["battery_poller"].start()
     if sound_on:
         watcher = audio.Watcher(lambda st: GLib.idle_add(apply_audio, st), match=args.sound_match)
         watcher.start()
@@ -359,6 +372,8 @@ def main(argv=None):
             tab_server.stop()
         if watcher is not None:
             watcher.stop()
+        if state.get("battery_poller") is not None:
+            state["battery_poller"].stop()
         ending = safety.session_ending()           # logout/reboot: nothing may block, the session is going away anyway
         ctl.restore_all()
         xwm.d.sync()
